@@ -5,7 +5,7 @@ VOID DbgkCreateThread(PEPROCESS Process, PETHREAD Thread);
 VOID DbgkCreateMinimalProcess(PEPROCESS Process);
 VOID DbgkExitThread(PEPROCESS Process, PETHREAD Thread, NTSTATUS ExitStatus);
 VOID DbgkExitProcess(PEPROCESS Process, NTSTATUS ExitStatus);
-VOID DbgkMapViewOfSection(PEPROCESS Process, PVOID Section, PVOID BaseAddress);
+VOID DbgkMapViewOfSection(PEPROCESS Process, PVOID BaseAddress);
 VOID DbgkUnMapViewOfSection(PEPROCESS Process, PVOID BaseAddress);
 
 VOID DbgkpPostModuleMessages(PEPROCESS Process, PETHREAD Thread, PVOID DebugPort);

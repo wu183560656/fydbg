@@ -10,10 +10,10 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp" />
-    <ClCompile Include="dbg\src\dbg.c">
+    <ClCompile Include="dbg\src\dbg.cpp">
       <Filter>dbg\src</Filter>
     </ClCompile>
-    <ClCompile Include="dbg\src\dbgk.c">
+    <ClCompile Include="dbg\src\dbgk.cpp">
       <Filter>dbg\src</Filter>
     </ClCompile>
   </ItemGroup>

@@ -1,6 +1,6 @@
 #include <ntifs.h>
-
 #include "dbgk.h"
+#include <fylib\include\fylib.hpp>
 
 #define MAX_ID 0x1000
 #pragma warning(disable:4201)
@@ -202,8 +202,28 @@ typedef struct _DEBUG_EVENT
 static BOOLEAN(NTAPI *DbgkpSuspendProcess)(PEPROCESS Process) = NULL;
 static VOID(NTAPI* PsThawMultiProcess)(PEPROCESS Process, ULONG64, ULONG64) = NULL;
 static PVOID(NTAPI* PsQueryThreadStartAddress)(PETHREAD Thread, BOOLEAN Flags) = NULL;  //Flags=FALSE
-static HANDLE(NTAPI* DbgkpSectionToFileHandle)(PVOID Section) = NULL;
+static NTSTATUS(NTAPI* MmGetFileNameForAddress)(PVOID Address, PUNICODE_STRING ModuleName) = NULL;
 static PFAST_MUTEX pDbgkpProcessDebugPortMutex = NULL;
+
+static const PIMAGE_NT_HEADERS RtlImageNtHeader(void* ImageBase)
+{
+    return (PIMAGE_NT_HEADERS)((PUCHAR)ImageBase + ((PIMAGE_DOS_HEADER)ImageBase)->e_lfanew);
+}
+
+static HANDLE GetFileNameForAddress(PVOID Address)
+{
+    HANDLE FileHandle = NULL;
+    UNICODE_STRING FileName = { 0 };
+    if (NT_SUCCESS(MmGetFileNameForAddress(Address, &FileName)))
+    {
+        OBJECT_ATTRIBUTES ObjectAttr;
+        IO_STATUS_BLOCK IoStatusBlock;
+        InitializeObjectAttributes(&ObjectAttr, &FileName, OBJ_FORCE_ACCESS_CHECK | OBJ_KERNEL_HANDLE | OBJ_CASE_INSENSITIVE/*0x640*/, NULL, NULL);
+        ZwOpenFile(&FileHandle, GENERIC_READ | SYNCHRONIZE/*0x80100000*/, &ObjectAttr, &IoStatusBlock, FILE_READ_DATA | FILE_WRITE_DATA | FILE_APPEND_DATA/*7*/, FILE_SYNCHRONOUS_IO_NONALERT/*0x20*/);
+        RtlFreeUnicodeString(&FileName);
+    }
+    return FileHandle;
+}
 
 static NTSTATUS DbgkpQueueMessage(PEPROCESS Process, PETHREAD Thread, PDBGKM_MSG Message, ULONG Flags, PVOID TargetObject)
 {
@@ -220,7 +240,7 @@ static NTSTATUS DbgkpQueueMessage(PEPROCESS Process, PETHREAD Thread, PDBGKM_MSG
     {
         /* Allocate it */
         //DebugEvent = ExAllocatePoolWithTag(NonPagedPool, sizeof(DEBUG_EVENT), TAG_DEBUG_EVENT);
-        DebugEvent = ExAllocatePool2(POOL_FLAG_NON_PAGED | POOL_FLAG_REQUIRED_START, sizeof(DEBUG_EVENT), TAG_DEBUG_EVENT);
+        DebugEvent = (PDEBUG_EVENT)ExAllocatePool2(POOL_FLAG_NON_PAGED | POOL_FLAG_REQUIRED_START, sizeof(DEBUG_EVENT), TAG_DEBUG_EVENT);
         if (!DebugEvent) return STATUS_INSUFFICIENT_RESOURCES;
 
         memset(DebugEvent, 0, sizeof(DEBUG_EVENT));
@@ -235,7 +255,7 @@ static NTSTATUS DbgkpQueueMessage(PEPROCESS Process, PETHREAD Thread, PDBGKM_MSG
         DebugEvent->BackoutThread = PsGetCurrentThread();
 
         /* Set the debug object */
-        DebugObject = TargetObject;
+        DebugObject = (PDEBUG_OBJECT)TargetObject;
     }
     else
     {
@@ -250,7 +270,7 @@ static NTSTATUS DbgkpQueueMessage(PEPROCESS Process, PETHREAD Thread, PDBGKM_MSG
 
         /* Get the debug object */
         //DebugObject = Process->DebugPort;
-        DebugObject = GetDebugPort(Process);
+        DebugObject = (PDEBUG_OBJECT)GetDebugPort(Process);
     }
 
     /* Setup the Debug Event */
@@ -438,22 +458,25 @@ VOID DbgkExitProcess(PEPROCESS Process, NTSTATUS ExitStatus)
     }
 }
 
-VOID DbgkMapViewOfSection(PEPROCESS Process, PVOID Section, PVOID BaseAddress)
+VOID DbgkMapViewOfSection(PEPROCESS Process, PVOID BaseAddress)
 {
     if (GetDebugPort(Process))
     {
-        DBGKM_MSG Msg = { 0 };
-        Msg.h.u1.s1.DataLength = 8 + sizeof(DBGKM_LOAD_DLL);
-        Msg.h.u1.s1.TotalLength = sizeof(PORT_MESSAGE) + 8 + sizeof(DBGKM_LOAD_DLL);
-        Msg.h.u2.s2.Type = LPC_DEBUG_EVENT;
-        Msg.ApiNumber = DbgKmLoadDllApi;
-        Msg.LoadDll.FileHandle = DbgkpSectionToFileHandle(Section);
-        Msg.LoadDll.BaseOfDll = BaseAddress;
-        Msg.LoadDll.DebugInfoFileOffset = 0;
-        Msg.LoadDll.DebugInfoSize = 0;
-        //LoadDll->NamePointer = &NtCurrentTeb()->NtTib.ArbitraryUserPointer;
-        Msg.LoadDll.NamePointer = NULL;
-        DbgkpSendApiMessage(Process, 1, &Msg);
+        HANDLE FileHandle = GetFileNameForAddress(BaseAddress);
+        if (FileHandle)
+        {
+            DBGKM_MSG Msg = { 0 };
+            Msg.h.u1.s1.DataLength = 8 + sizeof(DBGKM_LOAD_DLL);
+            Msg.h.u1.s1.TotalLength = sizeof(PORT_MESSAGE) + 8 + sizeof(DBGKM_LOAD_DLL);
+            Msg.h.u2.s2.Type = LPC_DEBUG_EVENT;
+            Msg.ApiNumber = DbgKmLoadDllApi;
+            Msg.LoadDll.FileHandle = FileHandle;
+            Msg.LoadDll.BaseOfDll = BaseAddress;
+            Msg.LoadDll.DebugInfoFileOffset = 0;
+            Msg.LoadDll.DebugInfoSize = 0;
+            Msg.LoadDll.NamePointer = NULL;
+            DbgkpSendApiMessage(Process, 1, &Msg);
+        }
     }
 }
 
@@ -473,33 +496,85 @@ VOID DbgkUnMapViewOfSection(PEPROCESS Process, PVOID BaseAddress)
 
 static NTSTATUS DbgkPostModuleMessage(PEPROCESS Process, PETHREAD Thread, PVOID ImageBase, PVOID DebugPort)
 {
+    NTSTATUS result = STATUS_SUCCESS;
     if (GetDebugPort(Process))
     {
-        DBGKM_MSG Msg = { 0 };
-        Msg.h.u1.s1.DataLength = 8 + sizeof(DBGKM_LOAD_DLL);
-        Msg.h.u1.s1.TotalLength = sizeof(PORT_MESSAGE) + 8 + sizeof(DBGKM_LOAD_DLL);
-        Msg.h.u2.s2.Type = LPC_DEBUG_EVENT;
-        Msg.ApiNumber = DbgKmLoadDllApi;
-        Msg.LoadDll.FileHandle = DbgkpSectionToFileHandle(Section);
-        Msg.LoadDll.BaseOfDll = ImageBase;
-        Msg.LoadDll.DebugInfoFileOffset = 0;
-        Msg.LoadDll.DebugInfoSize = 0;
-        //LoadDll->NamePointer = &NtCurrentTeb()->NtTib.ArbitraryUserPointer;
-        Msg.LoadDll.NamePointer = NULL;
-        DbgkpSendApiMessage(Process, 1, &Msg);
+        PIMAGE_NT_HEADERS NtHeaders = RtlImageNtHeader(ImageBase);
+        HANDLE FileHandle = GetFileNameForAddress(ImageBase);
+        if (FileHandle)
+        {
+            DBGKM_MSG Msg = { 0 };
+            Msg.h.u1.s1.DataLength = 8 + sizeof(DBGKM_LOAD_DLL);
+            Msg.h.u1.s1.TotalLength = sizeof(PORT_MESSAGE) + 8 + sizeof(DBGKM_LOAD_DLL);
+            Msg.h.u2.s2.Type = LPC_DEBUG_EVENT;
+            Msg.ApiNumber = DbgKmLoadDllApi;
+            Msg.LoadDll.FileHandle = FileHandle;
+            Msg.LoadDll.BaseOfDll = ImageBase;
+            Msg.LoadDll.DebugInfoFileOffset = NtHeaders->FileHeader.PointerToSymbolTable;
+            Msg.LoadDll.DebugInfoSize = NtHeaders->FileHeader.NumberOfSymbols;
+            Msg.LoadDll.NamePointer = NULL;
+
+            if (DebugPort)
+            {
+                result = DbgkpQueueMessage(Process, Thread, &Msg, 2, DebugPort);
+            }
+            else
+            {
+                result = DbgkpSendApiMessage(Process, 3, &Msg);
+            }
+            ObCloseHandle(FileHandle, KernelMode);
+        }
     }
+    return result;
 }
 
 VOID DbgkpPostModuleMessages(PEPROCESS Process, PETHREAD Thread, PVOID DebugPort)
 {
-    (Process);
-    (Thread);
-    (DebugPort);
+    KAPC_STATE ApcState;
+    BOOLEAN Attach = FALSE;
+    if (Process != PsGetCurrentProcess())
+    {
+        KeStackAttachProcess(Process, &ApcState);
+        Attach = TRUE;
+    }
+    PEB64* peb64 = (PEB64*)PsGetProcessPeb(Process);
+    if (peb64)
+    {
+        LIST_ENTRY64* ListHead = &((PEB_LDR_DATA64*)peb64->Ldr)->InLoadOrderModuleList;
+        for (LIST_ENTRY64* NextEntry = (LIST_ENTRY64*)ListHead->Flink; NextEntry != ListHead; NextEntry = (LIST_ENTRY64*)NextEntry->Flink)
+        {
+            LDR_DATA_TABLE_ENTRY64* LdrEntry = CONTAINING_RECORD(NextEntry, LDR_DATA_TABLE_ENTRY64, InLoadOrderLinks);
+            DbgkPostModuleMessage(Process, Thread, (PVOID)LdrEntry->DllBase, DebugPort);
+        }
+    }
+
+    PEB32* peb32 = (PEB32*)PsGetProcessWow64Process(Process);
+    if (peb32)
+    {
+        LIST_ENTRY32* ListHead = &((PEB_LDR_DATA32*)peb32->Ldr)->InLoadOrderModuleList;
+        for (LIST_ENTRY32* NextEntry = (LIST_ENTRY32*)ListHead->Flink; NextEntry != ListHead; NextEntry = (LIST_ENTRY32*)NextEntry->Flink)
+        {
+            LDR_DATA_TABLE_ENTRY32* LdrEntry = CONTAINING_RECORD(NextEntry, LDR_DATA_TABLE_ENTRY32, InLoadOrderLinks);
+            DbgkPostModuleMessage(Process, Thread, (PVOID)LdrEntry->DllBase, DebugPort);
+        }
+    }
+
+    if (Attach)
+    {
+        KeUnstackDetachProcess(&ApcState);
+    }
 }
 
 BOOLEAN DbgkInitialize()
 {
-    return FALSE;
+    PVOID ntoskrnl_base = FYLIB::GetSystemModuleBase("ntoskrnl.exe", NULL);
+    *(PVOID*)&DbgkpSuspendProcess = (PUCHAR)ntoskrnl_base + 0x0912674;
+    *(PVOID*)&PsThawMultiProcess = (PUCHAR)ntoskrnl_base + 0x03DF510;
+    *(PVOID*)&PsQueryThreadStartAddress = (PUCHAR)ntoskrnl_base + 0x040FE40;
+    *(PVOID*)&MmGetFileNameForAddress = (PUCHAR)ntoskrnl_base + 0x08C1EB8;
+    *(PVOID*)&pDbgkpProcessDebugPortMutex = (PUCHAR)ntoskrnl_base + 0x0F8DB40;
+
+    return TRUE;
 }
 
 VOID DbgkUnInitialize()

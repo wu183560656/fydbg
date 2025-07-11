@@ -1,7 +1,6 @@
 #include <ntifs.h>
 #include "dbgk.h"
 
-
 static VOID CreateProcessNotifyRoutine(HANDLE ParentId, HANDLE ProcessId, BOOLEAN Create)
 {
 	(ParentId);
@@ -43,6 +42,7 @@ static VOID CreateThreadNotifyRoutine(HANDLE ProcessId, HANDLE ThreadId, BOOLEAN
 		ObReferenceObject(Process);
 	}
 }
+
 static VOID LoadImageNotifyRoutine(PUNICODE_STRING FullImageName, HANDLE ProcessId, PIMAGE_INFO ImageInfo)
 {
 	(FullImageName);
@@ -52,7 +52,7 @@ static VOID LoadImageNotifyRoutine(PUNICODE_STRING FullImageName, HANDLE Process
 		if (NT_SUCCESS(PsLookupProcessByProcessId(ProcessId, &Process)))
 		{
 			ImageInfo->ImageSelector;
-			DbgkMapViewOfSection(Process, NULL, ImageInfo->ImageBase);
+			DbgkMapViewOfSection(Process, ImageInfo->ImageBase);
 			ObReferenceObject(Process);
 		}
 	}
@@ -61,10 +61,13 @@ static VOID LoadImageNotifyRoutine(PUNICODE_STRING FullImageName, HANDLE Process
 NTSTATUS Initialize(DRIVER_OBJECT DriverObject)
 {
 	UNREFERENCED_PARAMETER(DriverObject);
-	PsSetCreateProcessNotifyRoutine(CreateProcessNotifyRoutine, FALSE);
-	PsSetCreateThreadNotifyRoutine(CreateThreadNotifyRoutine);
-	PsSetLoadImageNotifyRoutine(LoadImageNotifyRoutine);
-	return -1;
+	if (DbgkInitialize())
+	{
+		PsSetCreateProcessNotifyRoutine(CreateProcessNotifyRoutine, FALSE);
+		PsSetCreateThreadNotifyRoutine(CreateThreadNotifyRoutine);
+		PsSetLoadImageNotifyRoutine(LoadImageNotifyRoutine);
+	}
+	return STATUS_SUCCESS;
 }
 
 VOID UnInitialize()
@@ -72,4 +75,5 @@ VOID UnInitialize()
 	PsSetCreateProcessNotifyRoutine(CreateProcessNotifyRoutine, TRUE);
 	PsRemoveCreateThreadNotifyRoutine(CreateThreadNotifyRoutine);
 	PsRemoveLoadImageNotifyRoutine(LoadImageNotifyRoutine);
+	DbgkUnInitialize();
 }

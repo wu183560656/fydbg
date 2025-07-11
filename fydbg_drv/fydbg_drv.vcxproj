@@ -54,22 +54,28 @@
     <DriverSign>
       <FileDigestAlgorithm>sha256</FileDigestAlgorithm>
     </DriverSign>
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(SolutionDir)common\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <DriverSign>
       <FileDigestAlgorithm>sha256</FileDigestAlgorithm>
     </DriverSign>
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(SolutionDir)common\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ClCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
     <FilesToPackage Include="$(TargetPath)" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="dbg\src\dbg.c" />
+    <ClCompile Include="dbg\src\dbg.cpp" />
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="dbg\include.h" />
-    <ClCompile Include="dbg\src\dbgk.c">
+    <ClCompile Include="dbg\src\dbgk.cpp">
       <FileType>CppCode</FileType>
     </ClCompile>
     <ClInclude Include="dbg\src\dbgk.h" />
