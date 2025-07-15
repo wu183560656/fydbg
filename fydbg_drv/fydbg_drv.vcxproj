@@ -79,6 +79,7 @@
       <FileType>CppCode</FileType>
     </ClCompile>
     <ClInclude Include="dbg\src\dbgk.h" />
+    <ClInclude Include="dbg\src\ntoskrnl.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

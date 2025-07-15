@@ -1,3 +1,8 @@
 #pragma once
-NTSTATUS Initialize(DRIVER_OBJECT DriverObject);
-VOID UnInitialize();
+
+
+namespace dbg
+{
+	NTSTATUS Initialize(DRIVER_OBJECT DriverObject);
+	VOID UnInitialize();
+}

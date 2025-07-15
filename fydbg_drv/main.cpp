@@ -10,6 +10,9 @@ static VOID DriverUnload(_In_ struct _DRIVER_OBJECT* DriverObject)
 extern "C" NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRING RegistryPath)
 {
 	UNREFERENCED_PARAMETER(RegistryPath);
+	
+
+
 	DriverObject->DriverUnload = DriverUnload;
 	return STATUS_SUCCESS;
 }

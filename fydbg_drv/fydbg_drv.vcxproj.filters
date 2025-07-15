@@ -24,5 +24,8 @@
     <ClInclude Include="dbg\src\dbgk.h">
       <Filter>dbg\src</Filter>
     </ClInclude>
+    <ClInclude Include="dbg\src\ntoskrnl.h">
+      <Filter>dbg\src</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>
