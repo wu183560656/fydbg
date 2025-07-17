@@ -7,26 +7,60 @@
 
 namespace dbgk
 {
-    static constexpr auto MAX_ID = 0x1000;
-    //´æ·ÅDebugPort
-    static volatile PVOID ProcessDebugPortList[MAX_ID / 4] = { NULL };
-    //´æ·ÅThreadContext
-    static volatile PVOID ThreadContextList[MAX_ID / 4] = { NULL };
-
-    inline static PVOID GetDebugPort(PEPROCESS Process)
+    static volatile PVOID _ProcessDebugPortList[0x10000 / 4] = { NULL };
+    static volatile PVOID _ThreadContextList[0x10000 / 4] = { NULL };
+    PVOID GetDebugPort(PEPROCESS Process) noexcept
     {
-        return ProcessDebugPortList[(ULONG)(ULONG64)PsGetProcessId(Process) / 4];
-    }
-    inline static PVOID GetThreadContext(PETHREAD Thread)
+        return _ProcessDebugPortList[(ULONG)(ULONG64)PsGetProcessId(Process) / 4];
+	}
+    BOOLEAN SetDebugPort(PEPROCESS Process, PVOID DebugObject) noexcept
     {
-        return ThreadContextList[(ULONG)(ULONG64)PsGetThreadId(Thread) / 4];
+        return InterlockedCompareExchangePointer(&_ProcessDebugPortList[(ULONG)(ULONG64)PsGetProcessId(Process) / 4], DebugObject, NULL) == NULL;
+	}
+    PVOID GetThreadContext(PETHREAD Thread) noexcept
+    {
+        return _ThreadContextList[(ULONG)(ULONG64)PsGetThreadId(Thread) / 4];
+    }
+    BOOLEAN SetThreadContext(PETHREAD Thread, PCONTEXT Context) noexcept
+    {
+        return InterlockedCompareExchangePointer(&_ThreadContextList[(ULONG)(ULONG64)PsGetThreadId(Thread) / 4], Context, NULL) == NULL;
     }
 
-    static BOOLEAN(NTAPI* DbgkpSuspendProcess)(PEPROCESS Process) = NULL;
-    static VOID(NTAPI* PsThawMultiProcess)(PEPROCESS Process, ULONG64, ULONG64) = NULL;
-    static PVOID(NTAPI* PsQueryThreadStartAddress)(PETHREAD Thread, BOOLEAN Flags) = NULL;  //Flags=FALSE
-    static NTSTATUS(NTAPI* MmGetFileNameForAddress)(PVOID Address, PUNICODE_STRING ModuleName) = NULL;
-    static PFAST_MUTEX pDbgkpProcessDebugPortMutex = NULL;
+    static BOOLEAN(NTAPI* _DbgkpSuspendProcess)(PEPROCESS Process) = NULL;
+    BOOLEAN DbgkpSuspendProcess(PEPROCESS Process)
+    {
+        return _DbgkpSuspendProcess(Process);
+	}
+
+    static VOID(NTAPI* _PsThawMultiProcess)(PEPROCESS Process, ULONG64, ULONG64) = NULL;
+    VOID PsThawMultiProcess(PEPROCESS Process, ULONG64 p2, ULONG64 p3)
+    {
+		return _PsThawMultiProcess(Process, p2, p3);
+    }
+
+    static PVOID(NTAPI* _PsQueryThreadStartAddress)(PETHREAD Thread, BOOLEAN Flags) = NULL;  //Flags=FALSE
+    PVOID PsQueryThreadStartAddress(PETHREAD Thread, BOOLEAN Flags)
+    {
+        return _PsQueryThreadStartAddress(Thread, Flags);
+	}
+
+    static NTSTATUS(NTAPI* _MmGetFileNameForAddress)(PVOID Address, PUNICODE_STRING ModuleName) = NULL;
+    NTSTATUS MmGetFileNameForAddress(PVOID Address, PUNICODE_STRING ModuleName)
+    {
+        return _MmGetFileNameForAddress(Address, ModuleName);
+    }
+
+    static PFAST_MUTEX _DbgkpProcessDebugPortMutex = NULL;
+    PFAST_MUTEX DbgkpProcessDebugPortMutex()
+    {
+        return _DbgkpProcessDebugPortMutex;
+    };
+
+    static PVOID _PsDebugObjectType = NULL;
+    PVOID PsDebugObjectType()
+    {
+        return _PsDebugObjectType;
+    }
 
     static const PIMAGE_NT_HEADERS RtlImageNtHeader(void* ImageBase)
     {
@@ -89,7 +123,7 @@ namespace dbgk
 
             /* Acquire the port lock */
             //ExAcquireFastMutex(&DbgkpProcessDebugPortMutex);
-            ExAcquireFastMutex(pDbgkpProcessDebugPortMutex);
+            ExAcquireFastMutex(DbgkpProcessDebugPortMutex());
 
             /* Get the debug object */
             //DebugObject = Process->DebugPort;
@@ -149,7 +183,7 @@ namespace dbgk
         {
             /* Release it */
             //ExReleaseFastMutex(&DbgkpProcessDebugPortMutex);
-            ExReleaseFastMutex(pDbgkpProcessDebugPortMutex);
+            ExReleaseFastMutex(DbgkpProcessDebugPortMutex());
 
             /* Check if we got here through success */
             if (NT_SUCCESS(Status))
@@ -399,11 +433,11 @@ namespace dbgk
     BOOLEAN Initialize()
     {
         PVOID ntoskrnl_base = FYLIB::GetSystemModuleBase("ntoskrnl.exe", NULL);
-        *(PVOID*)&DbgkpSuspendProcess = (PUCHAR)ntoskrnl_base + 0x0912674;
-        *(PVOID*)&PsThawMultiProcess = (PUCHAR)ntoskrnl_base + 0x03DF510;
-        *(PVOID*)&PsQueryThreadStartAddress = (PUCHAR)ntoskrnl_base + 0x040FE40;
-        *(PVOID*)&MmGetFileNameForAddress = (PUCHAR)ntoskrnl_base + 0x08C1EB8;
-        *(PVOID*)&pDbgkpProcessDebugPortMutex = (PUCHAR)ntoskrnl_base + 0x0F8DB40;
+        *(PVOID*)&_DbgkpSuspendProcess = (PUCHAR)ntoskrnl_base + 0x0912674;
+        *(PVOID*)&_PsThawMultiProcess = (PUCHAR)ntoskrnl_base + 0x03DF510;
+        *(PVOID*)&_PsQueryThreadStartAddress = (PUCHAR)ntoskrnl_base + 0x040FE40;
+        *(PVOID*)&_MmGetFileNameForAddress = (PUCHAR)ntoskrnl_base + 0x08C1EB8;
+        *(PVOID*)&_DbgkpProcessDebugPortMutex = (PUCHAR)ntoskrnl_base + 0x0F8DB40;
         return TRUE;
     }
 

@@ -1,5 +1,15 @@
 #pragma once
 
+#pragma warning(push)
+#pragma warning(disable:4201)
+
+//
+// Debug Object Access Masks
+//
+#define DEBUG_OBJECT_WAIT_STATE_CHANGE      0x0001
+#define DEBUG_OBJECT_ADD_REMOVE_PROCESS     0x0002
+#define DEBUG_OBJECT_SET_INFORMATION        0x0004
+#define DEBUG_OBJECT_ALL_ACCESS             (STANDARD_RIGHTS_REQUIRED | SYNCHRONIZE | 0x0F)
 
 typedef struct _PORT_MESSAGE
 {
@@ -180,3 +190,6 @@ typedef struct _DEBUG_EVENT
     PETHREAD BackoutThread;
     DBGKM_MSG ApiMsg;
 } DEBUG_EVENT, * PDEBUG_EVENT;
+
+
+#pragma warning(pop)

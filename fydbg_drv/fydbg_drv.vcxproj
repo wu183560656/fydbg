@@ -18,6 +18,7 @@
     <Configuration>Debug</Configuration>
     <Platform Condition="'$(Platform)' == ''">x64</Platform>
     <RootNamespace>fydbg_drv</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0.22621.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
@@ -70,16 +71,14 @@
     <FilesToPackage Include="$(TargetPath)" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="dbg\src\dbg.cpp" />
+    <ClCompile Include="dbg\dbg.cpp" />
+    <ClCompile Include="dbg\dbgk.cpp" />
     <ClCompile Include="main.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="dbg\include.h" />
-    <ClCompile Include="dbg\src\dbgk.cpp">
-      <FileType>CppCode</FileType>
-    </ClCompile>
-    <ClInclude Include="dbg\src\dbgk.h" />
-    <ClInclude Include="dbg\src\ntoskrnl.h" />
+    <ClInclude Include="dbg\dbg.h" />
+    <ClInclude Include="dbg\dbgk.h" />
+    <ClInclude Include="dbg\ntoskrnl.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

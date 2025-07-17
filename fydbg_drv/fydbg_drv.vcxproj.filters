@@ -4,28 +4,25 @@
     <Filter Include="dbg">
       <UniqueIdentifier>{f6df287f-4372-4219-a2e9-b5936c502ac6}</UniqueIdentifier>
     </Filter>
-    <Filter Include="dbg\src">
-      <UniqueIdentifier>{7445c505-fbd5-4760-a911-0143f8f7a437}</UniqueIdentifier>
-    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp" />
-    <ClCompile Include="dbg\src\dbg.cpp">
-      <Filter>dbg\src</Filter>
+    <ClCompile Include="dbg\dbg.cpp">
+      <Filter>dbg</Filter>
     </ClCompile>
-    <ClCompile Include="dbg\src\dbgk.cpp">
-      <Filter>dbg\src</Filter>
+    <ClCompile Include="dbg\dbgk.cpp">
+      <Filter>dbg</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="dbg\include.h">
+    <ClInclude Include="dbg\dbg.h">
       <Filter>dbg</Filter>
     </ClInclude>
-    <ClInclude Include="dbg\src\dbgk.h">
-      <Filter>dbg\src</Filter>
+    <ClInclude Include="dbg\dbgk.h">
+      <Filter>dbg</Filter>
     </ClInclude>
-    <ClInclude Include="dbg\src\ntoskrnl.h">
-      <Filter>dbg\src</Filter>
+    <ClInclude Include="dbg\ntoskrnl.h">
+      <Filter>dbg</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>
