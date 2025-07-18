@@ -12,6 +12,7 @@ namespace dbg
 	static UNICODE_STRING _DeviceName;
 	static UNICODE_STRING _SymLinkName;
 
+
 	static VOID CreateProcessNotifyRoutine(HANDLE ParentId, HANDLE ProcessId, BOOLEAN Create) noexcept
 	{
 		(ParentId);

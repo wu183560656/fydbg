@@ -6,7 +6,7 @@ namespace dbgk
 	PVOID GetThreadContext(PETHREAD Thread) noexcept;
 	BOOLEAN SetThreadContext(PETHREAD Thread, PCONTEXT Context) noexcept;
 
-	BOOLEAN DbgkSuspendProcess(PEPROCESS Process);
+	BOOLEAN DbgkpSuspendProcess(PEPROCESS Process);
 	VOID PsThawMultiProcess(PEPROCESS Process, ULONG64 p2, ULONG64 p3);
 	PVOID PsQueryThreadStartAddress(PETHREAD Thread, BOOLEAN Flags);
 	NTSTATUS MmGetFileNameForAddress(PVOID Address, PUNICODE_STRING ModuleName);

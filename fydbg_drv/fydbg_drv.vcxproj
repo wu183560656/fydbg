@@ -71,14 +71,15 @@
     <FilesToPackage Include="$(TargetPath)" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="dbg\dbg.cpp" />
-    <ClCompile Include="dbg\dbgk.cpp" />
+    <ClCompile Include="dbg.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="ssdt.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="dbg\dbg.h" />
-    <ClInclude Include="dbg\dbgk.h" />
-    <ClInclude Include="dbg\ntoskrnl.h" />
+    <ClInclude Include="dbg.h" />
+    <ClInclude Include="iocode.h" />
+    <ClInclude Include="ntoskrnl.h" />
+    <ClInclude Include="ssdt.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
