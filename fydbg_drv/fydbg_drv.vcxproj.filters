@@ -7,7 +7,6 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ntoskrnl.h" />
-    <ClInclude Include="iocode.h" />
     <ClInclude Include="ssdt.h" />
     <ClInclude Include="dbg.h" />
   </ItemGroup>

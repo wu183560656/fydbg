@@ -77,7 +77,6 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="dbg.h" />
-    <ClInclude Include="iocode.h" />
     <ClInclude Include="ntoskrnl.h" />
     <ClInclude Include="ssdt.h" />
   </ItemGroup>
