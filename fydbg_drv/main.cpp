@@ -4,95 +4,69 @@
 #include "ssdt.h"
 #include "dbg.h"
 
-#include <iocode.h>
+struct CALL_PARAM
+{
+	ULONG64 ssdt_index;
+	ULONG64 args[0x10];
+};
+#define IO_CODE CTL_CODE(FILE_DEVICE_UNKNOWN, 0x902, METHOD_OUT_DIRECT,FILE_READ_DATA | FILE_WRITE_DATA)
 
 
 static PDEVICE_OBJECT pDeviceObject = NULL;
 static UNICODE_STRING DriverName;
 static UNICODE_STRING SymLinkName;
 
+static ULONG NtDebugActiveProcessSSDTIndex = 0;
+static ULONG NtRemoveProcessDebugSSDTIndex = 0;
+static ULONG NtGetContextThreadSSDTIndex = 0;
+static ULONG NtSetContextThreadSSDTIndex = 0;
+
 static NTSTATUS IrpDeviceControlHandler(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 {
 	UNREFERENCED_PARAMETER(DeviceObject);
 	PIO_STACK_LOCATION pStackLocation = IoGetCurrentIrpStackLocation(Irp);
-	Irp->IoStatus.Status = STATUS_INVALID_PARAMETER;
-	Irp->IoStatus.Information = 0;
-	switch (pStackLocation->Parameters.DeviceIoControl.IoControlCode)
+	NTSTATUS Status = STATUS_INVALID_PARAMETER;
+	NTSTATUS Information = 0;
+	if (pStackLocation->Parameters.DeviceIoControl.IoControlCode == IO_CODE)
 	{
-	case IOCTL_NtDebugActiveProcess:
-	{
-		if (pStackLocation->Parameters.DeviceIoControl.InputBufferLength <= sizeof(IOCTL_NtDebugActiveProcess_PARAM))
+		if (pStackLocation->Parameters.DeviceIoControl.InputBufferLength >= sizeof(CALL_PARAM)
+			&& pStackLocation->Parameters.DeviceIoControl.OutputBufferLength >= sizeof(ULONG64)
+			&& MmIsAddressValid(Irp->MdlAddress))
 		{
-			IOCTL_NtDebugActiveProcess_PARAM* p = (IOCTL_NtDebugActiveProcess_PARAM*)pStackLocation->Parameters.DeviceIoControl.Type3InputBuffer;
-			Irp->IoStatus.Status = dbg::NtDebugActiveProcess(p->ProcessHandle, p->DebugObjectHandle);
-		}
-		break;
-	}
-	case IOCTL_NtRemoveProcessDebug:
-	{
-		if (pStackLocation->Parameters.DeviceIoControl.InputBufferLength <= sizeof(IOCTL_NtRemoveProcessDebug_PARAM))
-		{
-			IOCTL_NtRemoveProcessDebug_PARAM* p = (IOCTL_NtRemoveProcessDebug_PARAM*)pStackLocation->Parameters.DeviceIoControl.Type3InputBuffer;
-			Irp->IoStatus.Status = dbg::NtDebugActiveProcess(p->ProcessHandle, p->DebugObjectHandle);
-		}
-		break;
-	}
-	case IOCTL_NtReadVirtualMemory:
-	{
-		if (pStackLocation->Parameters.DeviceIoControl.InputBufferLength <= sizeof(IOCTL_NtReadVirtualMemory_PARAM))
-		{
-			IOCTL_NtReadVirtualMemory_PARAM* p = (IOCTL_NtReadVirtualMemory_PARAM*)pStackLocation->Parameters.DeviceIoControl.Type3InputBuffer;
-			Irp->IoStatus.Status = ssdt::NtReadVirtualMemory(p->ProcessHandle, p->BaseAddress, p->Buffer, p->NumberOfBytesToRead, p->NumberOfBytesRead);
-		}
-		break;
-	}
-	case IOCTL_NtWriteVirtualMemory:
-	{
-		if (pStackLocation->Parameters.DeviceIoControl.InputBufferLength <= sizeof(IOCTL_NtWriteVirtualMemory_PARAM))
-		{
-			IOCTL_NtWriteVirtualMemory_PARAM* p = (IOCTL_NtWriteVirtualMemory_PARAM*)pStackLocation->Parameters.DeviceIoControl.Type3InputBuffer;
-			Irp->IoStatus.Status = ssdt::NtWriteVirtualMemory(p->ProcessHandle, p->BaseAddress, p->Buffer, p->NumberOfBytesToWrite, p->NumberOfBytesWritten);
-		}
-		break;
-	}
-	case IOCTL_NtGetContextThread:
-	{
-		if (pStackLocation->Parameters.DeviceIoControl.InputBufferLength <= sizeof(IOCTL_NtGetContextThread_PARAM))
-		{
-			IOCTL_NtGetContextThread_PARAM* p = (IOCTL_NtGetContextThread_PARAM*)pStackLocation->Parameters.DeviceIoControl.Type3InputBuffer;
-			if (dbg::NtGetContextThread(p->ThreadHandle, p->ThreadContext))
+			CALL_PARAM* pParam = (CALL_PARAM*)pStackLocation->Parameters.DeviceIoControl.Type3InputBuffer;
+			ULONG64* pOut = (ULONG64*)MmGetSystemAddressForMdlSafe(Irp->MdlAddress, HighPagePriority);
+			if (pOut)
 			{
-				Irp->IoStatus.Status = STATUS_SUCCESS;
-			}
-			else
-			{
-				Irp->IoStatus.Status = ssdt::NtGetContextThread(p->ThreadHandle, p->ThreadContext);
+				//一些特殊请求处理
+				if (pParam->ssdt_index == NtDebugActiveProcessSSDTIndex)
+				{
+					Status = dbg::NtDebugActiveProcess((HANDLE)pParam->args[0], (HANDLE)pParam->args[1]);
+				}
+				else if (pParam->ssdt_index == NtRemoveProcessDebugSSDTIndex)
+				{
+					Status = dbg::NtRemoveProcessDebug((HANDLE)pParam->args[0], (HANDLE)pParam->args[1]);
+				}
+				else if (pParam->ssdt_index == NtGetContextThreadSSDTIndex)
+				{
+					Status = dbg::NtGetContextThread((HANDLE)pParam->args[0], (PVOID)pParam->args[1]);
+				}
+				else if (pParam->ssdt_index == NtSetContextThreadSSDTIndex)
+				{
+					Status = dbg::NtSetContextThread((HANDLE)pParam->args[0], (PVOID)pParam->args[1]);
+				}
+
+				if (!NT_SUCCESS(Status))
+				{
+					Status = ssdt::SwitchToKernelModeCall(pParam->ssdt_index, pParam->args);
+				}
+
+				*pOut = Status;
+				Information = sizeof(ULONG64);
 			}
 		}
-		break;
 	}
-	case IOCTL_NtSetContextThread:
-	{
-		if (pStackLocation->Parameters.DeviceIoControl.InputBufferLength <= sizeof(IOCTL_NtSetContextThread_PARAM))
-		{
-			IOCTL_NtSetContextThread_PARAM* p = (IOCTL_NtSetContextThread_PARAM*)pStackLocation->Parameters.DeviceIoControl.Type3InputBuffer;
-			if (dbg::NtSetContextThread(p->ThreadHandle, p->ThreadContext))
-			{
-				Irp->IoStatus.Status = STATUS_SUCCESS;
-			}
-			else
-			{
-				Irp->IoStatus.Status = ssdt::NtSetContextThread(p->ThreadHandle, p->ThreadContext);
-			}
-		}
-		break;
-	}
-	default:
-	{
-		Irp->IoStatus.Status = STATUS_NOT_IMPLEMENTED;
-		break;
-	}
-	}
+	Irp->IoStatus.Status = Status;
+	Irp->IoStatus.Information = Information;
 	IoCompleteRequest(Irp, IO_NO_INCREMENT);
 	return STATUS_NOT_IMPLEMENTED;
 };

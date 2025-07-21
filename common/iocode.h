@@ -1,4 +1,5 @@
 #pragma once
+
 #define IOCTL_NtDebugActiveProcess CTL_CODE(FILE_DEVICE_UNKNOWN, 0x900, METHOD_OUT_DIRECT,FILE_READ_DATA | FILE_WRITE_DATA)
 struct IOCTL_NtDebugActiveProcess_PARAM
 {
