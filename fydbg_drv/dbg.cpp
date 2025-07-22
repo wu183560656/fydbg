@@ -1,31 +1,16 @@
 #include <ntifs.h>
 #include "ntoskrnl.h"
-#include <fylib\include\fylib.hpp>
+#include <fylib\fylib.hpp>
 
 namespace dbg
 {
-    //本地Mutex
-    FAST_MUTEX LocalDbgkpProcessDebugPortMutex;
 	static volatile PVOID _ProcessDebugPortList[0x10000 / 4] = { NULL };
+    FAST_MUTEX _ProcessDebugPortList_Mutex;
 
-    static volatile PVOID _ThreadContextList[0x10000 / 4] = { NULL };
-    static inline PVOID GetDebugPort(PEPROCESS Process) noexcept
-    {
-        return _ProcessDebugPortList[(ULONG)(ULONG64)PsGetProcessId(Process) / 4];
-    }
-    static inline BOOLEAN SetDebugPort(PEPROCESS Process, PVOID DebugObject) noexcept
-    {
-        return InterlockedCompareExchangePointer(&_ProcessDebugPortList[(ULONG)(ULONG64)PsGetProcessId(Process) / 4], DebugObject, NULL) == NULL;
-    }
-    static inline PVOID GetThreadContext(PETHREAD Thread) noexcept
-    {
-        return _ThreadContextList[(ULONG)(ULONG64)PsGetThreadId(Thread) / 4];
-    }
-    static inline BOOLEAN SetThreadContext(PETHREAD Thread, PCONTEXT Context) noexcept
-    {
-        return InterlockedCompareExchangePointer(&_ThreadContextList[(ULONG)(ULONG64)PsGetThreadId(Thread) / 4], Context, NULL) == NULL;
-    }
+    static volatile PCONTEXT _ThreadContextList[0x10000 / 4] = { NULL };
+    FAST_MUTEX _ThreadContextList_Mutex;
 
+    //一些内部成员
     static BOOLEAN(NTAPI* DbgkpSuspendProcess)(PEPROCESS Process) = NULL;
     static VOID(NTAPI* PsThawMultiProcess)(PEPROCESS Process, ULONG64, ULONG64) = NULL;
     static PVOID(NTAPI* PsQueryThreadStartAddress)(PETHREAD Thread, BOOLEAN Flags) = NULL;  //Flags=FALSE
@@ -35,12 +20,12 @@ namespace dbg
     static ULONG EPROCESS_RundownProtect_Offset = 0;
     static NTSTATUS(NTAPI* DbgkpPostFakeProcessCreateMessages)(PEPROCESS Process, PDEBUG_OBJECT DebugObject, PETHREAD* LastThread) = NULL;
 
-
+    /*
     static const PIMAGE_NT_HEADERS RtlImageNtHeader(void* ImageBase)
     {
         return (PIMAGE_NT_HEADERS)((PUCHAR)ImageBase + ((PIMAGE_DOS_HEADER)ImageBase)->e_lfanew);
     }
-
+    */
     static HANDLE GetFileNameForAddress(PVOID Address)
     {
         HANDLE FileHandle = NULL;
@@ -204,7 +189,7 @@ namespace dbg
         return Status;
     }
 
-    static BOOLEAN DbgkForwardException(PEPROCESS Process, PEXCEPTION_RECORD ExceptionRecord, BOOLEAN SecondChance)
+    BOOLEAN DbgkForwardException(PEPROCESS Process, PEXCEPTION_RECORD ExceptionRecord, BOOLEAN SecondChance)
     {
         BOOLEAN Result = FALSE;
         if (GetDebugPort(Process))
@@ -225,7 +210,7 @@ namespace dbg
         return Result;
     }
 
-    static VOID DbgkCreateThread(PEPROCESS Process, PETHREAD Thread)
+    VOID DbgkCreateThread(PEPROCESS Process, PETHREAD Thread)
     {
         //如果Thread不是当前线程无法发送
         if (Thread == PsGetCurrentThread())
@@ -243,7 +228,7 @@ namespace dbg
         }
     }
 
-    static VOID DbgkCreateMinimalProcess(PEPROCESS Process)
+    VOID DbgkCreateMinimalProcess(PEPROCESS Process)
     {
         if (GetDebugPort(Process))
         {
@@ -256,7 +241,7 @@ namespace dbg
         }
     }
 
-    static VOID DbgkExitThread(PEPROCESS Process, PETHREAD Thread, NTSTATUS ExitStatus)
+    VOID DbgkExitThread(PEPROCESS Process, PETHREAD Thread, NTSTATUS ExitStatus)
     {
         //如果Thread不是当前线程无法发送
         if (Thread == PsGetCurrentThread())
@@ -274,7 +259,7 @@ namespace dbg
         }
     }
 
-    static VOID DbgkExitProcess(PEPROCESS Process, NTSTATUS ExitStatus)
+    VOID DbgkExitProcess(PEPROCESS Process, NTSTATUS ExitStatus)
     {
         if (GetDebugPort(Process))
         {
@@ -289,7 +274,7 @@ namespace dbg
         }
     }
 
-    static VOID DbgkMapViewOfSection(PEPROCESS Process, PVOID BaseAddress)
+    VOID DbgkMapViewOfSection(PEPROCESS Process, PVOID BaseAddress)
     {
         if (GetDebugPort(Process))
         {
@@ -311,7 +296,7 @@ namespace dbg
         }
     }
 
-    static VOID DbgkUnMapViewOfSection(PEPROCESS Process, PVOID BaseAddress)
+    VOID DbgkUnMapViewOfSection(PEPROCESS Process, PVOID BaseAddress)
     {
         if (GetDebugPort(Process))
         {
@@ -324,7 +309,7 @@ namespace dbg
             DbgkpSendApiMessage(Process, 1, &Msg);
         }
     }
-
+    /*
     static NTSTATUS DbgkPostModuleMessage(PEPROCESS Process, PETHREAD Thread, PVOID ImageBase, PVOID DebugPort)
     {
         NTSTATUS result = STATUS_SUCCESS;
@@ -395,22 +380,7 @@ namespace dbg
             KeUnstackDetachProcess(&ApcState);
         }
     }
-
-    static VOID DbgkPostModuleMessages(PEPROCESS Process, PETHREAD Thread)
-    {
-        if (GetDebugPort(Process))
-        {
-            DbgkpPostModuleMessages(Process, Thread, NULL);
-        }
-    }
-
-
-
-
-
-
-
-
+    */
 	static VOID CreateProcessNotifyRoutine(HANDLE ParentId, HANDLE ProcessId, BOOLEAN Create) noexcept
 	{
 		(ParentId);
@@ -468,9 +438,26 @@ namespace dbg
 		}
 	}
 
+    static PVOID RtlDispatchException_Address = NULL;
+	static PVOID RtlDispatchExceptionNewCode_Address = NULL;
+
+    static NTSTATUS DbgkpSetProcessDebugObject(PEPROCESS Process, PDEBUG_OBJECT DebugObject, NTSTATUS Status, PETHREAD LastThread)
+    {
+        (Process);
+        (DebugObject);
+        (Status);
+        (LastThread);
+        return STATUS_SUCCESS;
+    }
+    static NTSTATUS DbgkClearProcessDebugObject(PEPROCESS Process, PDEBUG_OBJECT DebugObject)
+    {
+        (Process);
+        (DebugObject);
+        return STATUS_SUCCESS;
+	}
+
 	NTSTATUS NtDebugActiveProcess(HANDLE ProcessHandle, HANDLE DebugHandle)
 	{
-
         PEPROCESS Process;
         PDEBUG_OBJECT DebugObject;
         //KPROCESSOR_MODE PreviousMode = ExGetPreviousMode();
@@ -525,13 +512,10 @@ namespace dbg
         Status = DbgkpPostFakeProcessCreateMessages(Process,
             DebugObject,
             &LastThread);
-        /*
         Status = DbgkpSetProcessDebugObject(Process,
             DebugObject,
             Status,
             LastThread);
-            */
-        InterlockedCompareExchangePointer(&_ProcessDebugPortList[(ULONG)(ULONG64)PsGetProcessId(Process) / 4], DebugObject, NULL);
 
         /* Release rundown protection */
         //ExReleaseRundownProtection(&Process->RundownProtect);
@@ -544,22 +528,117 @@ namespace dbg
 
 	}
 
-	NTSTATUS NtRemoveProcessDebug(HANDLE ProcessHandle, HANDLE DebugObjectHandle)
+	NTSTATUS NtRemoveProcessDebug(HANDLE ProcessHandle, HANDLE DebugHandle)
 	{
+        PEPROCESS Process;
+        PDEBUG_OBJECT DebugObject;
+        KPROCESSOR_MODE PreviousMode = KernelMode;
+        NTSTATUS Status;
+        PAGED_CODE();
 
-        (ProcessHandle);
-        (DebugObjectHandle);
-        return STATUS_NOT_IMPLEMENTED;
+        /* Reference the process */
+        Status = ObReferenceObjectByHandle(ProcessHandle,
+            0x800/*PROCESS_SUSPEND_RESUME*/,
+            *PsProcessType,
+            PreviousMode,
+            (PVOID*)&Process,
+            NULL);
+        if (!NT_SUCCESS(Status)) return Status;
+
+        /* Reference the debug object */
+        Status = ObReferenceObjectByHandle(DebugHandle,
+            DEBUG_OBJECT_ADD_REMOVE_PROCESS,
+            DbgkDebugObjectType_ptr,
+            PreviousMode,
+            (PVOID*)&DebugObject,
+            NULL);
+        if (!NT_SUCCESS(Status))
+        {
+            /* Dereference the process and exit */
+            ObDereferenceObject(Process);
+            return Status;
+        }
+
+        /* Remove the debug object */
+        Status = DbgkClearProcessDebugObject(Process, DebugObject);
+
+        /* Dereference the process and debug object and return status */
+        ObDereferenceObject(Process);
+        ObDereferenceObject(DebugObject);
+        return Status;
 	}
 
-	NTSTATUS NtGetContextThread(HANDLE ThreadHandle, PVOID ThreadContext)
+	NTSTATUS NtGetContextThread(HANDLE ThreadHandle, PCONTEXT ThreadContext)
 	{
-        (ThreadHandle);
-        (ThreadContext);
-        return STATUS_NOT_IMPLEMENTED;
+		NTSTATUS Status = STATUS_NOT_IMPLEMENTED;
+        PETHREAD Thread = NULL;
+        if (NT_SUCCESS(ObReferenceObjectByHandle(ThreadHandle, THREAD_GET_CONTEXT, *PsThreadType, KernelMode, (PVOID*)&Thread, NULL)))
+        {
+            //是否32位进程
+            BOOLEAN IsWow64 = PsGetProcessWow64Process(PsGetThreadProcess(Thread)) != NULL;
+            if (!IsWow64)
+            {
+                ULONG ThreadId = (ULONG)PsGetThreadId(Thread);
+                ExAcquireFastMutex(&_ThreadContextList_Mutex);
+                {
+                    PCONTEXT Context = _ThreadContextList[ThreadId / 4];
+                    if (Context)
+                    {
+                        if (ThreadContext->ContextFlags & CONTEXT_CONTROL)
+                        {
+                            ThreadContext->SegCs = Context->SegCs;
+                        }
+                        if (ThreadContext->ContextFlags & CONTEXT_INTEGER)
+                        {
+							ThreadContext->Rax = Context->Rax;
+							ThreadContext->Rcx = Context->Rcx;
+							ThreadContext->Rdx = Context->Rdx;
+							ThreadContext->Rbx = Context->Rbx;
+							ThreadContext->Rsp = Context->Rsp;
+							ThreadContext->Rbp = Context->Rbp;
+							ThreadContext->Rsi = Context->Rsi;
+							ThreadContext->Rdi = Context->Rdi;
+							ThreadContext->R8 = Context->R8;
+							ThreadContext->R9 = Context->R9;
+							ThreadContext->R10 = Context->R10;
+							ThreadContext->R11 = Context->R11;
+							ThreadContext->R12 = Context->R12;
+							ThreadContext->R13 = Context->R13;
+							ThreadContext->R14 = Context->R14;
+							ThreadContext->R15 = Context->R15;
+							ThreadContext->Rip = Context->Rip;
+                        }
+                        if (ThreadContext->ContextFlags & CONTEXT_SEGMENTS)
+                        {
+                            ThreadContext->SegDs = Context->SegDs;
+                            ThreadContext->SegEs = Context->SegEs;
+                            ThreadContext->SegSs = Context->SegSs;
+                            ThreadContext->SegFs = Context->SegFs;
+                            ThreadContext->SegGs = Context->SegGs;
+                        }
+                        if (ThreadContext->ContextFlags & CONTEXT_FLOATING_POINT)
+                        {
+                            ThreadContext->FltSave = Context->FltSave;
+                        }
+                        if (ThreadContext->ContextFlags & CONTEXT_DEBUG_REGISTERS)
+                        {
+                            ThreadContext->Dr0 = Context->Dr0;
+                            ThreadContext->Dr1 = Context->Dr1;
+                            ThreadContext->Dr2 = Context->Dr2;
+                            ThreadContext->Dr3 = Context->Dr3;
+                            ThreadContext->Dr6 = Context->Dr6;
+                            ThreadContext->Dr7 = Context->Dr7;
+                        }
+                    }
+                }
+            }
+            ExReleaseFastMutex(&_ThreadContextList_Mutex);
+			ObReferenceObject(Thread);
+        }
+        return Status;
 	}
 
-	NTSTATUS NtSetContextThread(HANDLE ThreadHandle, PVOID ThreadContext)
+	NTSTATUS NtSetContextThread(HANDLE ThreadHandle, PCONTEXT ThreadContext)
 	{
         (ThreadHandle);
         (ThreadContext);
@@ -575,6 +654,11 @@ namespace dbg
         *(PVOID*)&MmGetFileNameForAddress = (PUCHAR)ntoskrnl_base + 0x08C1EB8;
         *(PVOID*)&DbgkpProcessDebugPortMutex_ptr = (PUCHAR)ntoskrnl_base + 0x0F8DB40;
         *(PVOID*)&DbgkDebugObjectType_ptr = (PUCHAR)ntoskrnl_base + 0x0F8DB40;
+
+        //初始化互斥体
+        ExInitializeFastMutex(&_ThreadContextList_Mutex);
+		ExInitializeFastMutex(&_ProcessDebugPortList_Mutex);
+        
 
         NTSTATUS result;
         if (NT_SUCCESS(result = PsSetCreateProcessNotifyRoutine(CreateProcessNotifyRoutine, FALSE)))
@@ -602,9 +686,8 @@ namespace dbg
                 PsSetCreateProcessNotifyRoutine(CreateProcessNotifyRoutine, TRUE);
             }
         }
-        return STATUS_SUCCESS;
 
-        return TRUE;
+        return STATUS_SUCCESS;
     }
     VOID UnInitialize()
     {

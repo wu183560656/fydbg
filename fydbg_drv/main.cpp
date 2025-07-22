@@ -1,16 +1,11 @@
 #include <ntifs.h>
+#include <fylib\fylib.hpp>
 
 #include "ntoskrnl.h"
 #include "ssdt.h"
 #include "dbg.h"
 
-struct CALL_PARAM
-{
-	ULONG64 ssdt_index;
-	ULONG64 args[0x10];
-};
-#define IO_CODE CTL_CODE(FILE_DEVICE_UNKNOWN, 0x902, METHOD_OUT_DIRECT,FILE_READ_DATA | FILE_WRITE_DATA)
-
+#include <iocode.h>
 
 static PDEVICE_OBJECT pDeviceObject = NULL;
 static UNICODE_STRING DriverName;
@@ -27,13 +22,15 @@ static NTSTATUS IrpDeviceControlHandler(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 	PIO_STACK_LOCATION pStackLocation = IoGetCurrentIrpStackLocation(Irp);
 	NTSTATUS Status = STATUS_INVALID_PARAMETER;
 	NTSTATUS Information = 0;
-	if (pStackLocation->Parameters.DeviceIoControl.IoControlCode == IO_CODE)
+	switch (pStackLocation->Parameters.DeviceIoControl.IoControlCode)
 	{
-		if (pStackLocation->Parameters.DeviceIoControl.InputBufferLength >= sizeof(CALL_PARAM)
+	case IO_CODE_SYSTEM_CALL:
+	{
+		if (pStackLocation->Parameters.DeviceIoControl.InputBufferLength >= sizeof(SYSTEM_CALL_PARAM)
 			&& pStackLocation->Parameters.DeviceIoControl.OutputBufferLength >= sizeof(ULONG64)
 			&& MmIsAddressValid(Irp->MdlAddress))
 		{
-			CALL_PARAM* pParam = (CALL_PARAM*)pStackLocation->Parameters.DeviceIoControl.Type3InputBuffer;
+			SYSTEM_CALL_PARAM* pParam = (SYSTEM_CALL_PARAM*)pStackLocation->Parameters.DeviceIoControl.Type3InputBuffer;
 			ULONG64* pOut = (ULONG64*)MmGetSystemAddressForMdlSafe(Irp->MdlAddress, HighPagePriority);
 			if (pOut)
 			{
@@ -57,13 +54,22 @@ static NTSTATUS IrpDeviceControlHandler(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 
 				if (!NT_SUCCESS(Status))
 				{
-					Status = ssdt::SwitchToKernelModeCall(pParam->ssdt_index, pParam->args);
+					Status = ssdt::SwitchToKernelModeCall((ULONG)pParam->ssdt_index, pParam->args);
 				}
 
 				*pOut = Status;
 				Information = sizeof(ULONG64);
 			}
 		}
+		break;
+	}
+	case IO_CODE_FORWARD_EXCEPTION:
+	{
+
+		break;
+	}
+	default:
+		break;
 	}
 	Irp->IoStatus.Status = Status;
 	Irp->IoStatus.Information = Information;
@@ -104,12 +110,12 @@ extern "C" NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRI
 	}
 
 	//创建设备对象
-	RtlInitUnicodeString(&DriverName, L"\\Device\\fy_dbg");
+	RtlInitUnicodeString(&DriverName, DRVIER_NAME);
 	if (NT_SUCCESS(Result = IoCreateDevice(DriverObject, 0, &DriverName, FILE_DEVICE_UNKNOWN, 0, TRUE, &pDeviceObject)))
 	{
 		//创建符号链接
 		pDeviceObject->Flags |= DO_BUFFERED_IO;
-		RtlInitUnicodeString(&SymLinkName, L"\\??\\fy_dbg");
+		RtlInitUnicodeString(&SymLinkName, SYMBOL_LINK_NANM);
 		if (NT_SUCCESS(Result = IoCreateSymbolicLink(&SymLinkName, &DriverName)))
 		{
 			Result = STATUS_SUCCESS;

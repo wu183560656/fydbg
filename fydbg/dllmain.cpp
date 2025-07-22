@@ -1,14 +1,9 @@
 #include <Windows.h>
 #include <string>
-#include "fylib\include\fylib.hpp"
+#include "fylib\fylib.hpp"
 //#include "kdmapper\include\intel_driver.hpp"
 
-struct CALL_PARAM
-{
-    ULONG64 ssdt_index;
-    ULONG64 args[0x10];
-};
-#define IO_CODE CTL_CODE(FILE_DEVICE_UNKNOWN, 0x902, METHOD_OUT_DIRECT,FILE_READ_DATA | FILE_WRITE_DATA)
+#include <iocode.h>
 
 typedef struct _IO_STATUS_BLOCK {
     union {
@@ -37,14 +32,14 @@ extern"C" ULONG_PTR deviceiocontrol(DWORD64 sstdId, PVOID pRegArgs, PVOID pStack
     {
         return -1;
     }
-    CALL_PARAM param = { NULL };
+    SYSTEM_CALL_PARAM param = { NULL };
     param.ssdt_index = sstdId;
     ULONG64 out = 0;
     memcpy(param.args, pRegArgs, 4 * sizeof(PVOID));
     memcpy(param.args + 4, pStackArgs, sizeof(param.args) - 4 * sizeof(PVOID));
     DWORD retLength = -1;
 	IO_STATUS_BLOCK StatusBlock = { 0 };
-    NTSTATUS Status = funNtDeviceIoControlFile(g_driverHandle, NULL, NULL, NULL, &StatusBlock, IO_CODE, &param, sizeof(param), &out, sizeof(out));
+    NTSTATUS Status = funNtDeviceIoControlFile(g_driverHandle, NULL, NULL, NULL, &StatusBlock, IO_CODE_SYSTEM_CALL, &param, sizeof(param), &out, sizeof(out));
     if (!NT_SUCCESS(Status))
     {
         return Status;
@@ -64,7 +59,10 @@ const UCHAR HookCode[] = { 0xB8,0x22,0x22,0x00,0x00,0x49,0xBA,0x88,0x77,0x66,0x5
 extern "C" void ASM_transfer();
 bool ForwardNtApi(LPCSTR funName)
 {
-    bool result = false;
+    if (!_strnicmp(funName, "NtDeviceIoControlFile", sizeof("NtDeviceIoControlFile")))
+    {
+        return false;
+    }
     HMODULE hModule = GetModuleHandleA("ntdll.dll");
     if (hModule == NULL)
     {
@@ -80,8 +78,7 @@ bool ForwardNtApi(LPCSTR funName)
     {
         return false;
     }
-
-    bool retCode = false;
+    bool result = false;
     //检查是否是直接syscall函数
     if (((DWORD32*)fun)[0] == 0xB8D18B4C && ((DWORD64*)fun)[1] == 0x017FFE03082504F6 && ((DWORD64*)fun)[2] == 0xC32ECDC3050F0375)
     {
@@ -90,13 +87,12 @@ bool ForwardNtApi(LPCSTR funName)
         *(DWORD32*)(newCode + 1) = ((DWORD32*)fun)[1];
         *(PVOID*)(newCode + 7) = &ASM_transfer;
         memcpy(fun, newCode, sizeof(newCode));
-        retCode = true;
+        result = true;
     }
     FYLIB::PROCESS::ProtectMemory(GetCurrentProcess(), fun, sizeof(HookCode), flOldProtect, &flOldProtect);
-    return retCode;
+    return result;
 }
 
-#define SERVER_NAME L"fy_dbg"
 BOOL WINAPI DllMain(
     HINSTANCE hinstDLL,
     DWORD fdwReason,
@@ -107,13 +103,20 @@ BOOL WINAPI DllMain(
     case DLL_PROCESS_ATTACH:
     {
         bool success = false;
-        std::wstring fileName = std::wstring(L"\\\\.\\") + SERVER_NAME;
+        std::wstring fileName = std::wstring(L"\\\\.\\") + L"SERVER_NAME";
         g_driverHandle = CreateFileW(fileName.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_SYSTEM, 0);
         if (g_driverHandle == INVALID_HANDLE_VALUE)
         {
-            if (FYLIB::LoadDriver(SERVER_NAME, L"ntdll_kernel.sys"))
+			wchar_t DriveFileName[MAX_PATH] = { 0 };
+            if (GetModuleFileNameW(hinstDLL, DriveFileName, sizeof(DriveFileName) / sizeof(*DriveFileName)) > 0)
             {
-                g_driverHandle = CreateFileW(fileName.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_SYSTEM, 0);
+                wchar_t* pos = DriveFileName + wcslen(DriveFileName);
+				while (*pos != L'\\')*pos-- = 0;
+				wcscat_s(DriveFileName, L"fydbg_drv.sys");
+                if (FYLIB::LoadDriver(SERVER_NAME, DriveFileName))
+                {
+                    g_driverHandle = CreateFileW(fileName.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_SYSTEM, 0);
+                }
             }
         }
         if (g_driverHandle != INVALID_HANDLE_VALUE)

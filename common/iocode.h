@@ -1,49 +1,27 @@
 #pragma once
 
-#define IOCTL_NtDebugActiveProcess CTL_CODE(FILE_DEVICE_UNKNOWN, 0x900, METHOD_OUT_DIRECT,FILE_READ_DATA | FILE_WRITE_DATA)
-struct IOCTL_NtDebugActiveProcess_PARAM
-{
-	HANDLE ProcessHandle;
-	HANDLE DebugObjectHandle;
-};
+#define SERVER_NAME L"fydbg"
+#define DRVIER_NAME L"\\Device\\fydbg"
+#define SYMBOL_LINK_NANM L"\\??\\fydbg"
 
-#define IOCTL_NtRemoveProcessDebug CTL_CODE(FILE_DEVICE_UNKNOWN, 0x901, METHOD_OUT_DIRECT,FILE_READ_DATA | FILE_WRITE_DATA)
-struct IOCTL_NtRemoveProcessDebug_PARAM
+struct SYSTEM_CALL_PARAM
 {
-	HANDLE ProcessHandle;
-	HANDLE DebugObjectHandle;
+	ULONG64 ssdt_index;
+	ULONG64 args[0x10];
 };
-
-#define IOCTL_NtReadVirtualMemory CTL_CODE(FILE_DEVICE_UNKNOWN, 0x902, METHOD_OUT_DIRECT,FILE_READ_DATA | FILE_WRITE_DATA)
-struct IOCTL_NtReadVirtualMemory_PARAM
+#define IO_CODE_SYSTEM_CALL CTL_CODE(FILE_DEVICE_UNKNOWN, 0x900, METHOD_OUT_DIRECT,FILE_READ_DATA | FILE_WRITE_DATA)
+struct FORWARD_EXCEPTION_PARAM
 {
-	HANDLE ProcessHandle;
-	PVOID BaseAddress;
-	PVOID Buffer;
-	SIZE_T NumberOfBytesToRead;
-	PSIZE_T NumberOfBytesRead;
+	union
+	{
+		PEXCEPTION_RECORD ExceptionRecord;
+		PEXCEPTION_RECORD32 pExceptionRecord32;
+	};
+	union
+	{
+		PCONTEXT pContext;
+		PWOW64_CONTEXT pWow64Context;
+	};
+	BOOLEAN First;
 };
-
-#define IOCTL_NtWriteVirtualMemory CTL_CODE(FILE_DEVICE_UNKNOWN, 0x903, METHOD_OUT_DIRECT,FILE_READ_DATA | FILE_WRITE_DATA)
-struct IOCTL_NtWriteVirtualMemory_PARAM
-{
-	HANDLE ProcessHandle;
-	PVOID BaseAddress;
-	PVOID Buffer;
-	SIZE_T NumberOfBytesToWrite;
-	PSIZE_T NumberOfBytesWritten;
-};
-
-#define IOCTL_NtGetContextThread CTL_CODE(FILE_DEVICE_UNKNOWN, 0x904, METHOD_OUT_DIRECT,FILE_READ_DATA | FILE_WRITE_DATA)
-struct IOCTL_NtGetContextThread_PARAM
-{
-	HANDLE ThreadHandle;
-	PVOID ThreadContext;
-};
-
-#define IOCTL_NtSetContextThread CTL_CODE(FILE_DEVICE_UNKNOWN, 0x905, METHOD_OUT_DIRECT,FILE_READ_DATA | FILE_WRITE_DATA)
-struct IOCTL_NtSetContextThread_PARAM
-{
-	HANDLE ThreadHandle;
-	PVOID ThreadContext;
-};
+#define IO_CODE_FORWARD_EXCEPTION CTL_CODE(FILE_DEVICE_UNKNOWN, 0x901, METHOD_OUT_DIRECT,FILE_READ_DATA | FILE_WRITE_DATA)

@@ -1,5 +1,5 @@
 #include <ntifs.h>
-#include <fylib\include\fylib.hpp>
+#include <fylib\fylib.hpp>
 
 namespace ssdt
 {
