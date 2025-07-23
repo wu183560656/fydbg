@@ -45,11 +45,11 @@ static NTSTATUS IrpDeviceControlHandler(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 				}
 				else if (pParam->ssdt_index == NtGetContextThreadSSDTIndex)
 				{
-					Status = dbg::NtGetContextThread((HANDLE)pParam->args[0], (PVOID)pParam->args[1]);
+					Status = dbg::NtGetContextThread((HANDLE)pParam->args[0], (PCONTEXT)pParam->args[1]);
 				}
 				else if (pParam->ssdt_index == NtSetContextThreadSSDTIndex)
 				{
-					Status = dbg::NtSetContextThread((HANDLE)pParam->args[0], (PVOID)pParam->args[1]);
+					Status = dbg::NtSetContextThread((HANDLE)pParam->args[0], (PCONTEXT)pParam->args[1]);
 				}
 
 				if (!NT_SUCCESS(Status))

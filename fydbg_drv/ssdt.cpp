@@ -35,7 +35,6 @@ namespace ssdt
 	}
 
 
-
 	NTSTATUS SwitchToKernelModeCall(ULONG SsdtIndex, PULONG64 Params)
 	{
 		FYLIB::ExSetPreviousMode(KernelMode);
