@@ -15,7 +15,7 @@ typedef struct _IO_STATUS_BLOCK {
 
 static HANDLE g_driverHandle = INVALID_HANDLE_VALUE;
 NTSTATUS(*funNtDeviceIoControlFile)(HANDLE FileHandle,
-    HANDLE Event,
+    HANDLE DeviceHandle,
     struct IO_APC_ROUTINE* ApcRoutine,
     PVOID ApcContext,
     PIO_STATUS_BLOCK IoStatusBlock,

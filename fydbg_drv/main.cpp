@@ -51,12 +51,10 @@ static NTSTATUS IrpDeviceControlHandler(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 				{
 					Status = dbg::NtSetContextThread((HANDLE)pParam->args[0], (PCONTEXT)pParam->args[1]);
 				}
-
 				if (!NT_SUCCESS(Status))
 				{
 					Status = ssdt::SwitchToKernelModeCall((ULONG)pParam->ssdt_index, pParam->args);
 				}
-
 				*pOut = Status;
 				Information = sizeof(ULONG64);
 			}
@@ -65,7 +63,15 @@ static NTSTATUS IrpDeviceControlHandler(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 	}
 	case IO_CODE_FORWARD_EXCEPTION:
 	{
-
+		if (pStackLocation->Parameters.DeviceIoControl.InputBufferLength >= sizeof(FORWARD_EXCEPTION_PARAM)
+			&& MmIsAddressValid(Irp->MdlAddress))
+		{
+			FORWARD_EXCEPTION_PARAM* pParam = (FORWARD_EXCEPTION_PARAM*)pStackLocation->Parameters.DeviceIoControl.Type3InputBuffer;
+			if (dbg::DbgkForwardException(PsGetCurrentProcess(), pParam->ExceptionRecord, pParam->First == false, pParam->pContext))
+			{
+				Status = STATUS_SUCCESS;
+			}
+		}
 		break;
 	}
 	default:

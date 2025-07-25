@@ -2,14 +2,14 @@
 #include "ntoskrnl.h"
 #include <fylib\fylib.hpp>
 
+#include "patch.h"
+
 namespace dbg
 {
 	static volatile PDEBUG_OBJECT _ProcessDebugPortList[0x10000 / 4] = { NULL };
-    FAST_MUTEX _ProcessDebugPortList_Mutex;
-
     static volatile PCONTEXT _ThreadContextList[0x10000 / 4] = { NULL };
-    FAST_MUTEX _ThreadContextList_Mutex;
-
+	static volatile PWOW64_CONTEXT _Wow64ThreadContextList[0x10000 / 4] = { NULL };
+    //NtDll地址
     static PVOID NtDll_RtlDispatchException_Address = NULL;
     static PVOID NtDll_RtlDispatchExceptionNewCode_Address = NULL;
     //一些内部成员
@@ -24,6 +24,14 @@ namespace dbg
     static NTSTATUS(NTAPI* DbgkpPostFakeThreadMessages)(PEPROCESS Process, PDEBUG_OBJECT DebugObject, PETHREAD StartThread, PETHREAD* FirstThread, PETHREAD* LastThread) = NULL;
     static PETHREAD(NTAPI* PsGetNextProcessThread)(IN PEPROCESS 	Process, IN PETHREAD Thread 	OPTIONAL) = NULL;
     static VOID(NTAPI* DbgkpWakeTarget)(PDEBUG_EVENT DebugEvent) = NULL;
+    static ULONG ETHREAD_RundownProtect_Offset = 0;
+
+    static VOID PspSetCrossThreadFlag(PETHREAD Thread, LONG Flags)
+    {
+        UNREFERENCED_PARAMETER(Thread);
+        UNREFERENCED_PARAMETER(Flags);
+        return;
+    }
     static VOID NTAPI DbgkpMarkProcessPeb(IN PEPROCESS 	Process)
     {
         UNREFERENCED_PARAMETER(Process);
@@ -198,23 +206,28 @@ namespace dbg
         return Status;
     }
 
-    BOOLEAN DbgkForwardException(PEPROCESS Process, PEXCEPTION_RECORD ExceptionRecord, BOOLEAN SecondChance)
+    BOOLEAN DbgkForwardException(PEPROCESS Process, PEXCEPTION_RECORD ExceptionRecord, BOOLEAN SecondChance, PCONTEXT UserContext)
     {
         BOOLEAN Result = FALSE;
         if (_ProcessDebugPortList[((ULONG)(ULONG_PTR)PsGetProcessId(Process)) / 4])
         {
-            DBGKM_MSG Msg = { 0 };
-            Msg.h.u1.s1.DataLength = 8 + sizeof(DBGKM_EXCEPTION);
-            Msg.h.u1.s1.TotalLength = sizeof(PORT_MESSAGE) + 8 + sizeof(DBGKM_EXCEPTION);
-            Msg.h.u2.s2.Type = LPC_DEBUG_EVENT;
-            Msg.ApiNumber = DbgKmExceptionApi;
-            Msg.Exception.ExceptionRecord = *ExceptionRecord;
-            Msg.Exception.FirstChance = !SecondChance;
-            NTSTATUS Status = DbgkpSendApiMessage(Process, 1, &Msg);
-            if (NT_SUCCESS(Status) && NT_SUCCESS(Msg.ReturnedStatus))
+			ULONG ThreadId = (ULONG)(ULONG_PTR)PsGetCurrentThreadId();
+            _ThreadContextList[ThreadId / 4] = UserContext;
             {
-                Result = TRUE;
+                DBGKM_MSG Msg = { 0 };
+                Msg.h.u1.s1.DataLength = 8 + sizeof(DBGKM_EXCEPTION);
+                Msg.h.u1.s1.TotalLength = sizeof(PORT_MESSAGE) + 8 + sizeof(DBGKM_EXCEPTION);
+                Msg.h.u2.s2.Type = LPC_DEBUG_EVENT;
+                Msg.ApiNumber = DbgKmExceptionApi;
+                Msg.Exception.ExceptionRecord = *ExceptionRecord;
+                Msg.Exception.FirstChance = !SecondChance;
+                NTSTATUS Status = DbgkpSendApiMessage(Process, 1, &Msg);
+                if (NT_SUCCESS(Status) && NT_SUCCESS(Msg.ReturnedStatus))
+                {
+                    Result = TRUE;
+                }
             }
+            _ThreadContextList[ThreadId / 4] = NULL;
         }
         return Result;
     }
@@ -578,8 +591,9 @@ namespace dbg
 
                 /* Check if the status is success */
                 if ((MsgStatus == STATUS_SUCCESS) &&
-                    (EventThread->GrantedAccess) &&
-                    (!EventThread->SystemThread))
+                    //(EventThread->GrantedAccess) &&
+                    //(!EventThread->SystemThread))
+                    !PsIsSystemThread(EventThread))
                 {
                     /* Check if we couldn't acquire rundown for it */
                     if (DebugEvent->Flags & DEBUG_EVENT_PROTECT_FAILED)
@@ -625,7 +639,8 @@ namespace dbg
                 {
                     /* Release it */
                     DebugEvent->Flags &= ~DEBUG_EVENT_RELEASE;
-                    ExReleaseRundownProtection(&EventThread->RundownProtect);
+                    //ExReleaseRundownProtection(&EventThread->RundownProtect);
+                    ExReleaseRundownProtection((PEX_RUNDOWN_REF)((PUCHAR)EventThread + ETHREAD_RundownProtect_Offset));
                 }
             }
         }
@@ -866,60 +881,59 @@ namespace dbg
             if (!IsWow64)
             {
                 ULONG ThreadId = (ULONG)(ULONG_PTR)PsGetThreadId(Thread);
-                ExAcquireFastMutex(&_ThreadContextList_Mutex);
+                PCONTEXT Context = _ThreadContextList[ThreadId / 4];
+                if (Context)
                 {
-                    PCONTEXT Context = _ThreadContextList[ThreadId / 4];
-                    if (Context)
+                    if (ThreadContext->ContextFlags & CONTEXT_INTEGER)
                     {
-                        if (ThreadContext->ContextFlags & CONTEXT_CONTROL)
-                        {
-                            ThreadContext->SegCs = Context->SegCs;
-                        }
-                        if (ThreadContext->ContextFlags & CONTEXT_INTEGER)
-                        {
-							ThreadContext->Rax = Context->Rax;
-							ThreadContext->Rcx = Context->Rcx;
-							ThreadContext->Rdx = Context->Rdx;
-							ThreadContext->Rbx = Context->Rbx;
-							ThreadContext->Rsp = Context->Rsp;
-							ThreadContext->Rbp = Context->Rbp;
-							ThreadContext->Rsi = Context->Rsi;
-							ThreadContext->Rdi = Context->Rdi;
-							ThreadContext->R8 = Context->R8;
-							ThreadContext->R9 = Context->R9;
-							ThreadContext->R10 = Context->R10;
-							ThreadContext->R11 = Context->R11;
-							ThreadContext->R12 = Context->R12;
-							ThreadContext->R13 = Context->R13;
-							ThreadContext->R14 = Context->R14;
-							ThreadContext->R15 = Context->R15;
-							ThreadContext->Rip = Context->Rip;
-                        }
-                        if (ThreadContext->ContextFlags & CONTEXT_SEGMENTS)
-                        {
-                            ThreadContext->SegDs = Context->SegDs;
-                            ThreadContext->SegEs = Context->SegEs;
-                            ThreadContext->SegSs = Context->SegSs;
-                            ThreadContext->SegFs = Context->SegFs;
-                            ThreadContext->SegGs = Context->SegGs;
-                        }
-                        if (ThreadContext->ContextFlags & CONTEXT_FLOATING_POINT)
-                        {
-                            ThreadContext->FltSave = Context->FltSave;
-                        }
-                        if (ThreadContext->ContextFlags & CONTEXT_DEBUG_REGISTERS)
-                        {
-                            ThreadContext->Dr0 = Context->Dr0;
-                            ThreadContext->Dr1 = Context->Dr1;
-                            ThreadContext->Dr2 = Context->Dr2;
-                            ThreadContext->Dr3 = Context->Dr3;
-                            ThreadContext->Dr6 = Context->Dr6;
-                            ThreadContext->Dr7 = Context->Dr7;
-                        }
+                        ThreadContext->Rax = Context->Rax;
+                        ThreadContext->Rcx = Context->Rcx;
+                        ThreadContext->Rdx = Context->Rdx;
+                        ThreadContext->Rbx = Context->Rbx;
+                        ThreadContext->Rbp = Context->Rbp;
+                        ThreadContext->Rsi = Context->Rsi;
+                        ThreadContext->Rdi = Context->Rdi;
+                        ThreadContext->R8 = Context->R8;
+                        ThreadContext->R9 = Context->R9;
+                        ThreadContext->R10 = Context->R10;
+                        ThreadContext->R11 = Context->R11;
+                        ThreadContext->R12 = Context->R12;
+                        ThreadContext->R13 = Context->R13;
+                        ThreadContext->R14 = Context->R14;
+                        ThreadContext->R15 = Context->R15;
                     }
+                    if (ThreadContext->ContextFlags & CONTEXT_FLOATING_POINT)
+                    {
+                        ThreadContext->MxCsr = Context->MxCsr;
+                        ThreadContext->FltSave = Context->FltSave;
+                    }
+                    if (ThreadContext->ContextFlags & CONTEXT_CONTROL)
+                    {
+                        ThreadContext->Rip = Context->Rip;
+                        ThreadContext->Rsp = Context->Rsp;
+                        ThreadContext->EFlags = Context->EFlags;
+                        ThreadContext->SegCs = Context->SegCs;
+                        ThreadContext->SegSs = Context->SegSs;
+                    }
+                    if (ThreadContext->ContextFlags & CONTEXT_SEGMENTS)
+                    {
+                        ThreadContext->SegDs = Context->SegDs;
+                        ThreadContext->SegEs = Context->SegEs;
+                        ThreadContext->SegFs = Context->SegFs;
+                        ThreadContext->SegGs = Context->SegGs;
+                    }
+                    if (ThreadContext->ContextFlags & CONTEXT_DEBUG_REGISTERS)
+                    {
+                        ThreadContext->Dr0 = Context->Dr0;
+                        ThreadContext->Dr1 = Context->Dr1;
+                        ThreadContext->Dr2 = Context->Dr2;
+                        ThreadContext->Dr3 = Context->Dr3;
+                        ThreadContext->Dr6 = Context->Dr6;
+                        ThreadContext->Dr7 = Context->Dr7;
+                    }
+                    Status = STATUS_SUCCESS;
                 }
             }
-            ExReleaseFastMutex(&_ThreadContextList_Mutex);
 			ObReferenceObject(Thread);
         }
         return Status;
@@ -927,10 +941,204 @@ namespace dbg
 
 	NTSTATUS NtSetContextThread(HANDLE ThreadHandle, PCONTEXT ThreadContext)
 	{
-        (ThreadHandle);
-        (ThreadContext);
-        return STATUS_NOT_IMPLEMENTED;
+        NTSTATUS Status = STATUS_NOT_IMPLEMENTED;
+        PETHREAD Thread = NULL;
+        if (NT_SUCCESS(ObReferenceObjectByHandle(ThreadHandle, THREAD_GET_CONTEXT, *PsThreadType, KernelMode, (PVOID*)&Thread, NULL)))
+        {
+            //是否32位进程
+            BOOLEAN IsWow64 = PsGetProcessWow64Process(PsGetThreadProcess(Thread)) != NULL;
+            if (!IsWow64)
+            {
+                ULONG ThreadId = (ULONG)(ULONG_PTR)PsGetThreadId(Thread);
+                PCONTEXT Context = _ThreadContextList[ThreadId / 4];
+                if (Context)
+                {
+                    if (ThreadContext->ContextFlags & CONTEXT_INTEGER)
+                    {
+                        Context->Rax = ThreadContext->Rax;
+                        Context->Rcx = ThreadContext->Rcx;
+                        Context->Rdx = ThreadContext->Rdx;
+                        Context->Rbx = ThreadContext->Rbx;
+                        Context->Rbp = ThreadContext->Rbp;
+                        Context->Rsi = ThreadContext->Rsi;
+                        Context->Rdi = ThreadContext->Rdi;
+                        Context->R8 = ThreadContext->R8;
+                        Context->R9 = ThreadContext->R9;
+                        Context->R10 = ThreadContext->R10;
+                        Context->R11 = ThreadContext->R11;
+                        Context->R12 = ThreadContext->R12;
+                        Context->R13 = ThreadContext->R13;
+                        Context->R14 = ThreadContext->R14;
+                        Context->R15 = ThreadContext->R15;
+                    }
+                    if (ThreadContext->ContextFlags & CONTEXT_FLOATING_POINT)
+                    {
+						Context->MxCsr = ThreadContext->MxCsr;
+                        Context->FltSave = ThreadContext->FltSave;
+                    }
+                    if (ThreadContext->ContextFlags & CONTEXT_CONTROL)
+                    {
+						Context->Rip = ThreadContext->Rip;
+						Context->Rsp = ThreadContext->Rsp;
+                        Context->EFlags = ThreadContext->EFlags;
+                        Context->SegCs = ThreadContext->SegCs;
+                        Context->SegSs = ThreadContext->SegSs;
+                    }
+                    if (ThreadContext->ContextFlags & CONTEXT_SEGMENTS)
+                    {
+                         Context->SegDs = ThreadContext->SegDs;
+                         Context->SegEs = ThreadContext->SegEs;
+                         Context->SegFs = ThreadContext->SegFs;
+                         Context->SegGs = ThreadContext->SegGs;
+                    }
+                    if (ThreadContext->ContextFlags & CONTEXT_DEBUG_REGISTERS)
+                    {
+                        Context->Dr0 = ThreadContext->Dr0;
+                        Context->Dr1 = ThreadContext->Dr1;
+                        Context->Dr2 = ThreadContext->Dr2;
+                        Context->Dr3 = ThreadContext->Dr3;
+                        Context->Dr6 = ThreadContext->Dr6;
+                        Context->Dr7 = ThreadContext->Dr7;
+                    }
+                    Status = STATUS_SUCCESS;
+                }
+            }
+            ObReferenceObject(Thread);
+        }
+        return Status;
 	}
+    NTSTATUS NtQueryInformationThread(HANDLE ThreadHandle, THREADINFOCLASS ThreadInformationClass, PVOID ThreadInformation, ULONG ThreadInformationLength, PULONG ReturnLength)
+    {
+        if (ThreadInformationClass != THREADINFOCLASS::ThreadWow64Context || ThreadInformationLength < sizeof(WOW64_CONTEXT))
+        {
+            return STATUS_NOT_IMPLEMENTED;
+        }
+		PWOW64_CONTEXT BufferContext = (PWOW64_CONTEXT)ThreadInformation;
+        NTSTATUS Status = STATUS_NOT_IMPLEMENTED;
+        PETHREAD Thread = NULL;
+        if (NT_SUCCESS(ObReferenceObjectByHandle(ThreadHandle, THREAD_GET_CONTEXT, *PsThreadType, KernelMode, (PVOID*)&Thread, NULL)))
+        {
+            //是否32位进程
+            BOOLEAN IsWow64 = PsGetProcessWow64Process(PsGetThreadProcess(Thread)) != NULL;
+            if (IsWow64)
+            {
+                ULONG ThreadId = (ULONG)(ULONG_PTR)PsGetThreadId(Thread);
+                PWOW64_CONTEXT Context = _Wow64ThreadContextList[ThreadId / 4];
+                if (Context)
+                {
+                    if(BufferContext->ContextFlags & WOW64_CONTEXT_INTEGER)
+                    {
+                        BufferContext->Eax = Context->Eax;
+                        BufferContext->Ecx = Context->Ecx;
+                        BufferContext->Edx = Context->Edx;
+                        BufferContext->Ebx = Context->Ebx;
+                        BufferContext->Ebp = Context->Ebp;
+                        BufferContext->Esi = Context->Esi;
+                        BufferContext->Edi = Context->Edi;
+					}
+                    if(BufferContext->ContextFlags & WOW64_CONTEXT_FLOATING_POINT)
+                    {
+                        BufferContext->FloatSave = Context->FloatSave;
+					}
+                    if (BufferContext->ContextFlags & WOW64_CONTEXT_CONTROL)
+                    {
+                        BufferContext->Eip = Context->Eip;
+                        BufferContext->Esp = Context->Esp;
+                        BufferContext->EFlags = Context->EFlags;
+                        BufferContext->SegCs = Context->SegCs;
+                        BufferContext->SegSs = Context->SegSs;
+                    }
+                    if(BufferContext->ContextFlags & WOW64_CONTEXT_SEGMENTS)
+                    {
+                        BufferContext->SegDs = Context->SegDs;
+                        BufferContext->SegEs = Context->SegEs;
+                        BufferContext->SegFs = Context->SegFs;
+                        BufferContext->SegGs = Context->SegGs;
+					}
+                    if (BufferContext->ContextFlags & WOW64_CONTEXT_DEBUG_REGISTERS)
+                    {
+                        BufferContext->Dr0 = Context->Dr0;
+                        BufferContext->Dr1 = Context->Dr1;
+                        BufferContext->Dr2 = Context->Dr2;
+                        BufferContext->Dr3 = Context->Dr3;
+                        BufferContext->Dr6 = Context->Dr6;
+                        BufferContext->Dr7 = Context->Dr7;
+                    }
+                    if (ReturnLength)
+                    {
+						*ReturnLength = sizeof(WOW64_CONTEXT);
+                    }
+					Status = STATUS_SUCCESS;
+                }
+            }
+            ObReferenceObject(Thread);
+        }
+        return Status;
+    }
+    NTSTATUS NtSetInformationThread(HANDLE ThreadHandle, THREADINFOCLASS ThreadInformationClass, PVOID ThreadInformation, ULONG ThreadInformationLength)
+    {
+        if (ThreadInformationClass != THREADINFOCLASS::ThreadWow64Context || ThreadInformationLength < sizeof(WOW64_CONTEXT))
+        {
+            return STATUS_NOT_IMPLEMENTED;
+        }
+        PWOW64_CONTEXT BufferContext = (PWOW64_CONTEXT)ThreadInformation;
+        NTSTATUS Status = STATUS_NOT_IMPLEMENTED;
+        PETHREAD Thread = NULL;
+        if (NT_SUCCESS(ObReferenceObjectByHandle(ThreadHandle, THREAD_GET_CONTEXT, *PsThreadType, KernelMode, (PVOID*)&Thread, NULL)))
+        {
+            //是否32位进程
+            BOOLEAN IsWow64 = PsGetProcessWow64Process(PsGetThreadProcess(Thread)) != NULL;
+            if (IsWow64)
+            {
+                ULONG ThreadId = (ULONG)(ULONG_PTR)PsGetThreadId(Thread);
+                PWOW64_CONTEXT Context = _Wow64ThreadContextList[ThreadId / 4];
+                if (Context)
+                {
+                    if (BufferContext->ContextFlags & WOW64_CONTEXT_INTEGER)
+                    {
+                        Context->Eax = BufferContext->Eax;
+                        Context->Ecx = BufferContext->Ecx;
+                        Context->Edx = BufferContext->Edx;
+                        Context->Ebx = BufferContext->Ebx;
+                        Context->Ebp = BufferContext->Ebp;
+                        Context->Esi = BufferContext->Esi;
+                        Context->Edi = BufferContext->Edi;
+                    }
+                    if (BufferContext->ContextFlags & WOW64_CONTEXT_FLOATING_POINT)
+                    {
+                        Context->FloatSave = BufferContext->FloatSave;
+                    }
+                    if (BufferContext->ContextFlags & WOW64_CONTEXT_CONTROL)
+                    {
+                        Context->Eip = BufferContext->Eip;
+                        Context->Esp = BufferContext->Esp;
+                        Context->EFlags = BufferContext->EFlags;
+                        Context->SegCs = BufferContext->SegCs;
+                        Context->SegSs = BufferContext->SegSs;
+                    }
+                    if (BufferContext->ContextFlags & WOW64_CONTEXT_SEGMENTS)
+                    {
+                        Context->SegDs = BufferContext->SegDs;
+                        Context->SegEs = BufferContext->SegEs;
+                        Context->SegFs = BufferContext->SegFs;
+                        Context->SegGs = BufferContext->SegGs;
+                    }
+                    if (BufferContext->ContextFlags & WOW64_CONTEXT_DEBUG_REGISTERS)
+                    {
+                        Context->Dr0 = BufferContext->Dr0;
+                        Context->Dr1 = BufferContext->Dr1;
+                        Context->Dr2 = BufferContext->Dr2;
+                        Context->Dr3 = BufferContext->Dr3;
+                        Context->Dr6 = BufferContext->Dr6;
+                        Context->Dr7 = BufferContext->Dr7;
+                    }
+                    Status = STATUS_SUCCESS;
+                }
+            }
+            ObReferenceObject(Thread);
+        }
+        return Status;
+    }
 
     NTSTATUS Initialize()
     {
@@ -942,11 +1150,6 @@ namespace dbg
         *(PVOID*)&DbgkpProcessDebugPortMutex_ptr = (PUCHAR)ntoskrnl_base + 0x0F8DB40;
         *(PVOID*)&DbgkDebugObjectType_ptr = (PUCHAR)ntoskrnl_base + 0x0F8DB40;
 
-        //初始化互斥体
-        ExInitializeFastMutex(&_ThreadContextList_Mutex);
-		ExInitializeFastMutex(&_ProcessDebugPortList_Mutex);
-        
-
         NTSTATUS result;
         if (NT_SUCCESS(result = PsSetCreateProcessNotifyRoutine(CreateProcessNotifyRoutine, FALSE)))
         {
@@ -955,8 +1158,6 @@ namespace dbg
                 if (NT_SUCCESS(result = PsSetLoadImageNotifyRoutine(LoadImageNotifyRoutine)))
                 {
                     result = STATUS_SUCCESS;
-
-
 
                     if (!NT_SUCCESS(result))
                     {

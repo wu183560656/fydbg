@@ -5,9 +5,10 @@ namespace dbg
 	NTSTATUS NtRemoveProcessDebug(HANDLE ProcessHandle, HANDLE DebugHandle);
 	NTSTATUS NtGetContextThread(HANDLE ThreadHandle, PCONTEXT ThreadContext);
 	NTSTATUS NtSetContextThread(HANDLE ThreadHandle, PCONTEXT ThreadContext);
+	NTSTATUS NtQueryInformationThread(HANDLE ThreadHandle, THREADINFOCLASS ThreadInformationClass, PVOID ThreadInformation, ULONG ThreadInformationLength, PULONG ReturnLength);
+	NTSTATUS NtSetInformationThread(HANDLE ThreadHandle, THREADINFOCLASS ThreadInformationClass, PVOID ThreadInformation, ULONG ThreadInformationLength);
 
-
-	BOOLEAN DbgkForwardException(PEPROCESS Process, PEXCEPTION_RECORD ExceptionRecord, BOOLEAN SecondChance);
+	BOOLEAN DbgkForwardException(PEPROCESS Process, PEXCEPTION_RECORD ExceptionRecord, BOOLEAN SecondChance, PCONTEXT UserContext);
 	VOID DbgkCreateThread(PEPROCESS Process, PETHREAD Thread);
 	VOID DbgkCreateMinimalProcess(PEPROCESS Process);
 	VOID DbgkExitThread(PEPROCESS Process, PETHREAD Thread, NTSTATUS ExitStatus);

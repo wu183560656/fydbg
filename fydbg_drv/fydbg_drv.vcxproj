@@ -75,11 +75,13 @@
   <ItemGroup>
     <ClCompile Include="dbg.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="patch.cpp" />
     <ClCompile Include="ssdt.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="dbg.h" />
     <ClInclude Include="ntoskrnl.h" />
+    <ClInclude Include="patch.h" />
     <ClInclude Include="ssdt.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
