@@ -4,12 +4,10 @@
     <ClCompile Include="main.cpp" />
     <ClCompile Include="ssdt.cpp" />
     <ClCompile Include="dbg.cpp" />
-    <ClCompile Include="patch.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ntoskrnl.h" />
     <ClInclude Include="ssdt.h" />
     <ClInclude Include="dbg.h" />
-    <ClInclude Include="patch.h" />
   </ItemGroup>
 </Project>

@@ -4,6 +4,26 @@
 #define DRVIER_NAME L"\\Device\\fydbg"
 #define SYMBOL_LINK_NANM L"\\??\\fydbg"
 
+struct DBG_INIT_PARAM
+{
+	ULONG DbgkpSuspendProcessOffset;
+	ULONG PsThawMultiProcessOffset;
+	ULONG PsQueryThreadStartAddressOffset;
+	ULONG MmGetFileNameForAddressOffset;
+	ULONG DbgkpProcessDebugPortMutexOffset;
+	ULONG DbgkDebugObjectTypeOffset;
+	ULONG RtlDispatchExceptionOffset;
+	ULONG RtlDispatchExceptionNewCodeOffset;
+	ULONG Wow64RtlDispatchExceptionOffset;
+	ULONG Wow64RtlDispatchExceptionNewCodeOffset;
+	ULONG EPROCESS_RundownProtect_Offset;
+	ULONG DbgkpPostFakeProcessCreateMessagesOffset;
+	ULONG DbgkpPostFakeThreadMessagesOffset;
+	ULONG PsGetNextProcessThreadOffset;
+	ULONG DbgkpWakeTargetOffset;
+	ULONG ETHREAD_RundownProtect_Offset;
+};
+#define IO_CODE_DBG_INIT CTL_CODE(FILE_DEVICE_UNKNOWN, 0x899, METHOD_OUT_DIRECT,FILE_READ_DATA | FILE_WRITE_DATA)
 struct SYSTEM_CALL_PARAM
 {
 	ULONG64 ssdt_index;

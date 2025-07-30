@@ -1,11 +1,11 @@
 #include <ntifs.h>
 #include <fylib\fylib.hpp>
 
+#include <iocode.h>
+
 #include "ntoskrnl.h"
 #include "ssdt.h"
 #include "dbg.h"
-
-#include <iocode.h>
 
 static PDEVICE_OBJECT pDeviceObject = NULL;
 static UNICODE_STRING DriverName;
@@ -24,6 +24,16 @@ static NTSTATUS IrpDeviceControlHandler(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 	NTSTATUS Information = 0;
 	switch (pStackLocation->Parameters.DeviceIoControl.IoControlCode)
 	{
+	case IO_CODE_DBG_INIT:
+	{
+		if (pStackLocation->Parameters.DeviceIoControl.InputBufferLength >= sizeof(DBG_INIT_PARAM)
+			&& MmIsAddressValid(Irp->MdlAddress))
+		{
+			DBG_INIT_PARAM* pParam = (DBG_INIT_PARAM*)pStackLocation->Parameters.DeviceIoControl.Type3InputBuffer;
+			Status = dbg::Initialize(pParam);
+		}
+		break;
+	}
 	case IO_CODE_SYSTEM_CALL:
 	{
 		if (pStackLocation->Parameters.DeviceIoControl.InputBufferLength >= sizeof(SYSTEM_CALL_PARAM)
@@ -83,6 +93,8 @@ static NTSTATUS IrpDeviceControlHandler(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 	return STATUS_NOT_IMPLEMENTED;
 };
 
+
+
 extern "C" NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRING RegistryPath)
 {
 	NTSTATUS Result;
@@ -109,11 +121,6 @@ extern "C" NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRI
 		IoCompleteRequest(Irp, IO_NO_INCREMENT);
 		return STATUS_SUCCESS;
 	};
-
-	if (!dbg::Initialize())
-	{
-		return STATUS_FAIL_CHECK;
-	}
 
 	//创建设备对象
 	RtlInitUnicodeString(&DriverName, DRVIER_NAME);

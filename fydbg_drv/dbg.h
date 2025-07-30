@@ -16,7 +16,7 @@ namespace dbg
 	VOID DbgkMapViewOfSection(PEPROCESS Process, PVOID BaseAddress);
 	VOID DbgkUnMapViewOfSection(PEPROCESS Process, PVOID BaseAddress);
 
-	NTSTATUS Initialize();
+	NTSTATUS Initialize(DBG_INIT_PARAM* pParam);
 	VOID UnInitialize();
 };
 
