@@ -93,7 +93,62 @@ static NTSTATUS IrpDeviceControlHandler(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 	return STATUS_NOT_IMPLEMENTED;
 };
 
+static VOID CreateProcessNotifyRoutine(HANDLE ParentId, HANDLE ProcessId, BOOLEAN Create) noexcept
+{
+	(ParentId);
+	PEPROCESS Process = NULL;
+	if (NT_SUCCESS(PsLookupProcessByProcessId(ProcessId, &Process)))
+	{
+		if (Create)
+		{
+			dbg::DbgkCreateMinimalProcess(Process);
+		}
+		else
+		{
+			NTSTATUS ExitStatus = PsGetProcessExitStatus(Process);
+			dbg::DbgkExitProcess(Process, ExitStatus);
+		}
+		ObReferenceObject(Process);
+	}
+}
 
+static VOID CreateThreadNotifyRoutine(HANDLE ProcessId, HANDLE ThreadId, BOOLEAN Create) noexcept
+{
+	PEPROCESS Process = NULL;
+	PETHREAD Thread = NULL;
+	if (NT_SUCCESS(PsLookupProcessByProcessId(ProcessId, &Process)))
+	{
+		if (NT_SUCCESS(PsLookupThreadByThreadId(ThreadId, &Thread)))
+		{
+			if (Create)
+			{
+				dbg::DbgkCreateThread(Process, Thread);
+			}
+			else
+			{
+				NTSTATUS ExitStatus = PsGetThreadExitStatus(Thread);
+				dbg::DbgkExitThread(Process, Thread, ExitStatus);
+			}
+			ObReferenceObject(Thread);
+		}
+		ObReferenceObject(Process);
+	}
+}
+
+static VOID LoadImageNotifyRoutine(PUNICODE_STRING FullImageName, HANDLE ProcessId, PIMAGE_INFO ImageInfo) noexcept
+{
+	(FullImageName);
+	if (ProcessId)
+	{
+		PEPROCESS Process = NULL;
+		if (NT_SUCCESS(PsLookupProcessByProcessId(ProcessId, &Process)))
+		{
+			ImageInfo->ImageSelector;
+			dbg::DbgkMapViewOfSection(Process, ImageInfo->ImageBase);
+			ObReferenceObject(Process);
+		}
+	}
+}
 
 extern "C" NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRING RegistryPath)
 {
@@ -102,6 +157,11 @@ extern "C" NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRI
 
 	DriverObject->DriverUnload = [](_In_ struct _DRIVER_OBJECT* DriverObject)->VOID{
 		UNREFERENCED_PARAMETER(DriverObject);
+
+		PsRemoveLoadImageNotifyRoutine(LoadImageNotifyRoutine);
+		PsRemoveCreateThreadNotifyRoutine(CreateThreadNotifyRoutine);
+		PsSetCreateProcessNotifyRoutine(CreateProcessNotifyRoutine, TRUE);
+
 		IoDeleteSymbolicLink(&SymLinkName);
 		IoDeleteDevice(pDeviceObject);
 		pDeviceObject = NULL;
@@ -131,8 +191,29 @@ extern "C" NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRI
 		RtlInitUnicodeString(&SymLinkName, SYMBOL_LINK_NANM);
 		if (NT_SUCCESS(Result = IoCreateSymbolicLink(&SymLinkName, &DriverName)))
 		{
-			Result = STATUS_SUCCESS;
-			
+			if (NT_SUCCESS(Result = PsSetCreateProcessNotifyRoutine(CreateProcessNotifyRoutine, FALSE)))
+			{
+				if (NT_SUCCESS(Result = PsSetCreateThreadNotifyRoutine(CreateThreadNotifyRoutine)))
+				{
+					if (NT_SUCCESS(Result = PsSetLoadImageNotifyRoutine(LoadImageNotifyRoutine)))
+					{
+						Result = STATUS_SUCCESS;
+
+						if (!NT_SUCCESS(Result))
+						{
+							PsRemoveLoadImageNotifyRoutine(LoadImageNotifyRoutine);
+						}
+					}
+					if (!NT_SUCCESS(Result))
+					{
+						PsRemoveCreateThreadNotifyRoutine(CreateThreadNotifyRoutine);
+					}
+				}
+				if (!NT_SUCCESS(Result))
+				{
+					PsSetCreateProcessNotifyRoutine(CreateProcessNotifyRoutine, TRUE);
+				}
+			}
 			if (!NT_SUCCESS(Result))
 			{
 				IoDeleteSymbolicLink(&SymLinkName);

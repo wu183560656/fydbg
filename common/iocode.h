@@ -12,10 +12,6 @@ struct DBG_INIT_PARAM
 	ULONG MmGetFileNameForAddressOffset;
 	ULONG DbgkpProcessDebugPortMutexOffset;
 	ULONG DbgkDebugObjectTypeOffset;
-	ULONG RtlDispatchExceptionOffset;
-	ULONG RtlDispatchExceptionNewCodeOffset;
-	ULONG Wow64RtlDispatchExceptionOffset;
-	ULONG Wow64RtlDispatchExceptionNewCodeOffset;
 	ULONG EPROCESS_RundownProtect_Offset;
 	ULONG DbgkpPostFakeProcessCreateMessagesOffset;
 	ULONG DbgkpPostFakeThreadMessagesOffset;
@@ -24,6 +20,19 @@ struct DBG_INIT_PARAM
 	ULONG ETHREAD_RundownProtect_Offset;
 };
 #define IO_CODE_DBG_INIT CTL_CODE(FILE_DEVICE_UNKNOWN, 0x899, METHOD_OUT_DIRECT,FILE_READ_DATA | FILE_WRITE_DATA)
+struct DBG_USER_INIT_PARAM
+{
+	ULONG RtlDispatchExceptionOffset;
+	ULONG RtlDispatchExceptionNewCodeOffset;
+};
+#define IO_CODE_DBG_USER_INIT CTL_CODE(FILE_DEVICE_UNKNOWN, 0x899, METHOD_OUT_DIRECT,FILE_READ_DATA | FILE_WRITE_DATA)
+struct DBG_USER_WOW64_INIT_PARAM
+{
+	ULONG Wow64RtlDispatchExceptionOffset;
+	ULONG Wow64RtlDispatchExceptionNewCodeOffset;
+};
+#define IO_CODE_DBG_USER_WOW64_INIT CTL_CODE(FILE_DEVICE_UNKNOWN, 0x899, METHOD_OUT_DIRECT,FILE_READ_DATA | FILE_WRITE_DATA)
+
 struct SYSTEM_CALL_PARAM
 {
 	ULONG64 ssdt_index;

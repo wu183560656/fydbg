@@ -5,7 +5,9 @@
 
 namespace dbg
 {
-	static bool Initialized = false;
+	static bool _Initialized = false;
+    static bool _UserInitialized = false;
+    static bool _UserWow64Initialized = false;
 
 	static volatile PDEBUG_OBJECT _ProcessDebugPortList[0x10000 / 4] = { NULL };
     static volatile PCONTEXT _ThreadContextList[0x10000 / 4] = { NULL };
@@ -206,7 +208,7 @@ namespace dbg
 
     BOOLEAN DbgkForwardException(PEPROCESS Process, PEXCEPTION_RECORD ExceptionRecord, BOOLEAN SecondChance, PCONTEXT UserContext)
     {
-        if (!Initialized)
+        if (!_Initialized)
         {
             return FALSE;
         }
@@ -237,7 +239,7 @@ namespace dbg
 
     VOID DbgkCreateThread(PEPROCESS Process, PETHREAD Thread)
     {
-        if (!Initialized)
+        if (!_Initialized)
         {
             return;
         }
@@ -260,7 +262,7 @@ namespace dbg
 
     VOID DbgkCreateMinimalProcess(PEPROCESS Process)
     {
-        if (!Initialized)
+        if (!_Initialized)
         {
             return;
         }
@@ -278,7 +280,7 @@ namespace dbg
 
     VOID DbgkExitThread(PEPROCESS Process, PETHREAD Thread, NTSTATUS ExitStatus)
     {
-        if (!Initialized)
+        if (!_Initialized)
         {
             return;
         }
@@ -301,7 +303,7 @@ namespace dbg
 
     VOID DbgkExitProcess(PEPROCESS Process, NTSTATUS ExitStatus)
     {
-        if (!Initialized)
+        if (!_Initialized)
         {
             return;
         }
@@ -321,7 +323,7 @@ namespace dbg
 
     VOID DbgkMapViewOfSection(PEPROCESS Process, PVOID BaseAddress)
     {
-        if (!Initialized)
+        if (!_Initialized)
         {
             return;
         }
@@ -348,7 +350,7 @@ namespace dbg
 
     VOID DbgkUnMapViewOfSection(PEPROCESS Process, PVOID BaseAddress)
     {
-        if (!Initialized)
+        if (!_Initialized)
         {
             return;
         }
@@ -436,63 +438,6 @@ namespace dbg
         }
     }
     */
-	static VOID CreateProcessNotifyRoutine(HANDLE ParentId, HANDLE ProcessId, BOOLEAN Create) noexcept
-	{
-		(ParentId);
-		PEPROCESS Process = NULL;
-		if (NT_SUCCESS(PsLookupProcessByProcessId(ProcessId, &Process)))
-		{
-			if (Create)
-			{
-				DbgkCreateMinimalProcess(Process);
-			}
-			else
-			{
-				NTSTATUS ExitStatus = PsGetProcessExitStatus(Process);
-				DbgkExitProcess(Process, ExitStatus);
-			}
-			ObReferenceObject(Process);
-		}
-	}
-
-	static VOID CreateThreadNotifyRoutine(HANDLE ProcessId, HANDLE ThreadId, BOOLEAN Create) noexcept
-	{
-		PEPROCESS Process = NULL;
-		PETHREAD Thread = NULL;
-		if (NT_SUCCESS(PsLookupProcessByProcessId(ProcessId, &Process)))
-		{
-			if (NT_SUCCESS(PsLookupThreadByThreadId(ThreadId, &Thread)))
-			{
-				if (Create)
-				{
-					DbgkCreateThread(Process, Thread);
-				}
-				else
-				{
-					NTSTATUS ExitStatus = PsGetThreadExitStatus(Thread);
-					DbgkExitThread(Process, Thread, ExitStatus);
-				}
-				ObReferenceObject(Thread);
-			}
-			ObReferenceObject(Process);
-		}
-	}
-
-	static VOID LoadImageNotifyRoutine(PUNICODE_STRING FullImageName, HANDLE ProcessId, PIMAGE_INFO ImageInfo) noexcept
-	{
-		(FullImageName);
-		if (ProcessId)
-		{
-			PEPROCESS Process = NULL;
-			if (NT_SUCCESS(PsLookupProcessByProcessId(ProcessId, &Process)))
-			{
-				ImageInfo->ImageSelector;
-				DbgkMapViewOfSection(Process, ImageInfo->ImageBase);
-				ObReferenceObject(Process);
-			}
-		}
-	}
-
 #pragma pack(push, 1)
     /*
     90 90 90 E8 30 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 90 48 B8 88 77 66 55 44 33 22 11 FF E0 90 90 90 90 48 87 2C 24 48 83 EC 70 48 89 4C 24 58 48 89 54 24 60 48 C7 44 24 40 00 00 00 00 48 C7 44 24 38 00 00 00 00 48 C7 44 24 30 18 00 00 00 48 8D 44 24 58 48 89 44 24 28 48 C7 44 24 20 78 56 34 12 4C 8D 4C 24 48 4D 31 C0 48 31 D2 48 8B 4D 00 48 8B 45 08 48 C7 44 24 68 01 00 00 00 FF D0 85 C0 B0 01 74 3A 48 8B 4C 24 58 48 8B 54 24 60 48 8D 45 10 FF D0 84 C0 75 26 4C 8D 4C 24 48 4D 31 C0 48 31 D2 48 8B 4D 00 48 8B 45 08 48 C7 44 24 68 00 00 00 00 FF D0 85 C0 B0 01 74 02 30 C0 48 83 C4 70 5D C3
@@ -1002,7 +947,7 @@ namespace dbg
 
 	NTSTATUS NtDebugActiveProcess(HANDLE ProcessHandle, HANDLE DebugHandle)
 	{
-        if (!Initialized)
+        if (!_Initialized)
         {
 			return STATUS_UNSUCCESSFUL;
         }
@@ -1079,7 +1024,7 @@ namespace dbg
 
 	NTSTATUS NtRemoveProcessDebug(HANDLE ProcessHandle, HANDLE DebugHandle)
 	{
-        if (!Initialized)
+        if (!_Initialized)
         {
             return STATUS_UNSUCCESSFUL;
         }
@@ -1124,7 +1069,7 @@ namespace dbg
 
 	NTSTATUS NtGetContextThread(HANDLE ThreadHandle, PCONTEXT ThreadContext)
 	{
-        if (!Initialized)
+        if (!_Initialized)
         {
             return STATUS_UNSUCCESSFUL;
         }
@@ -1198,7 +1143,7 @@ namespace dbg
 
 	NTSTATUS NtSetContextThread(HANDLE ThreadHandle, PCONTEXT ThreadContext)
 	{
-        if (!Initialized)
+        if (!_Initialized)
         {
             return STATUS_UNSUCCESSFUL;
         }
@@ -1271,7 +1216,7 @@ namespace dbg
 	}
     NTSTATUS NtQueryInformationThread(HANDLE ThreadHandle, THREADINFOCLASS ThreadInformationClass, PVOID ThreadInformation, ULONG ThreadInformationLength, PULONG ReturnLength)
     {
-        if (!Initialized)
+        if (!_Initialized)
         {
             return STATUS_UNSUCCESSFUL;
         }
@@ -1344,7 +1289,7 @@ namespace dbg
     }
     NTSTATUS NtSetInformationThread(HANDLE ThreadHandle, THREADINFOCLASS ThreadInformationClass, PVOID ThreadInformation, ULONG ThreadInformationLength)
     {
-        if (!Initialized)
+        if (!_Initialized)
         {
             return STATUS_UNSUCCESSFUL;
         }
@@ -1414,78 +1359,44 @@ namespace dbg
 
     NTSTATUS Initialize(DBG_INIT_PARAM* pParam)
     {
-        PVOID ntoskrnl_base = FYLIB::GetSystemModuleBase("ntoskrnl.exe", NULL);
-        *(PVOID*)&DbgkpSuspendProcess = (PUCHAR)ntoskrnl_base + pParam->DbgkpSuspendProcessOffset;
-        *(PVOID*)&PsThawMultiProcess = (PUCHAR)ntoskrnl_base + pParam->PsThawMultiProcessOffset;
-        *(PVOID*)&PsQueryThreadStartAddress = (PUCHAR)ntoskrnl_base + pParam->PsQueryThreadStartAddressOffset;
-        *(PVOID*)&MmGetFileNameForAddress = (PUCHAR)ntoskrnl_base + pParam->MmGetFileNameForAddressOffset;
-        *(PVOID*)&DbgkpProcessDebugPortMutex_ptr = (PUCHAR)ntoskrnl_base + pParam->DbgkpProcessDebugPortMutexOffset;
-        *(PVOID*)&DbgkDebugObjectType_ptr = (PUCHAR)ntoskrnl_base + pParam->DbgkDebugObjectTypeOffset;
-		EPROCESS_RundownProtect_Offset = pParam->EPROCESS_RundownProtect_Offset;
-		*(PVOID*)&DbgkpPostFakeProcessCreateMessages = (PUCHAR)ntoskrnl_base + pParam->DbgkpPostFakeProcessCreateMessagesOffset;
-		*(PVOID*)&DbgkpPostFakeThreadMessages = (PUCHAR)ntoskrnl_base + pParam->DbgkpPostFakeThreadMessagesOffset;
-		*(PVOID*)&PsGetNextProcessThread = (PUCHAR)ntoskrnl_base + pParam->PsGetNextProcessThreadOffset;
-		*(PVOID*)&DbgkpWakeTarget = (PUCHAR)ntoskrnl_base + pParam->DbgkpWakeTargetOffset;
-		ETHREAD_RundownProtect_Offset = pParam->ETHREAD_RundownProtect_Offset;
-
-        HANDLE _ExplorerHandle;
-        ULONG _ExplorerPid = FYLIB::GetProcessIdByProcessName(L"explorer.exe");
-        CLIENT_ID ExplorerClientId = { (HANDLE)_ExplorerPid, NULL };
-        OBJECT_ATTRIBUTES ObjectAttributes;
-        InitializeObjectAttributes(&ObjectAttributes, NULL, 0, NULL, NULL);
-        if (NT_SUCCESS(ZwOpenProcess(&_ExplorerHandle, PROCESS_ALL_ACCESS, &ObjectAttributes, &ExplorerClientId)))
+        if (!_Initialized)
         {
-            PVOID NtdllBase = FYLIB::PROCESS::GetModuleHandleX64W(_ExplorerHandle, L"ntdll.dll");
-			RtlDispatchExceptionAddress = (PUCHAR)NtdllBase + pParam->RtlDispatchExceptionOffset;
-			RtlDispatchExceptionNewCodeAddress = (PUCHAR)NtdllBase + pParam->RtlDispatchExceptionNewCodeOffset;
+            PVOID ntoskrnl_base = FYLIB::GetSystemModuleBase("ntoskrnl.exe", NULL);
+            *(PVOID*)&DbgkpSuspendProcess = (PUCHAR)ntoskrnl_base + pParam->DbgkpSuspendProcessOffset;
+            *(PVOID*)&PsThawMultiProcess = (PUCHAR)ntoskrnl_base + pParam->PsThawMultiProcessOffset;
+            *(PVOID*)&PsQueryThreadStartAddress = (PUCHAR)ntoskrnl_base + pParam->PsQueryThreadStartAddressOffset;
+            *(PVOID*)&MmGetFileNameForAddress = (PUCHAR)ntoskrnl_base + pParam->MmGetFileNameForAddressOffset;
+            *(PVOID*)&DbgkpProcessDebugPortMutex_ptr = (PUCHAR)ntoskrnl_base + pParam->DbgkpProcessDebugPortMutexOffset;
+            *(PVOID*)&DbgkDebugObjectType_ptr = (PUCHAR)ntoskrnl_base + pParam->DbgkDebugObjectTypeOffset;
+            EPROCESS_RundownProtect_Offset = pParam->EPROCESS_RundownProtect_Offset;
+            *(PVOID*)&DbgkpPostFakeProcessCreateMessages = (PUCHAR)ntoskrnl_base + pParam->DbgkpPostFakeProcessCreateMessagesOffset;
+            *(PVOID*)&DbgkpPostFakeThreadMessages = (PUCHAR)ntoskrnl_base + pParam->DbgkpPostFakeThreadMessagesOffset;
+            *(PVOID*)&PsGetNextProcessThread = (PUCHAR)ntoskrnl_base + pParam->PsGetNextProcessThreadOffset;
+            *(PVOID*)&DbgkpWakeTarget = (PUCHAR)ntoskrnl_base + pParam->DbgkpWakeTargetOffset;
+            ETHREAD_RundownProtect_Offset = pParam->ETHREAD_RundownProtect_Offset;
 
-			Wow64RtlDispatchExceptionAddress = (PUCHAR)NtdllBase + pParam->Wow64RtlDispatchExceptionOffset;
-			Wow64RtlDispatchExceptionNewCodeAddress = (PUCHAR)NtdllBase + pParam->Wow64RtlDispatchExceptionNewCodeOffset;
-            /*
-            RtlDispatchExceptionAddress = NULL;
-            RtlDispatchExceptionNewCodeAddress = NULL;
-            RtlDispatchExceptionJmpCodeBuffer[5] = { 0x90,0x90,0x90,0x90,0x90 };
-            RtlDispatchExceptioBackCode[5] = { 0x90,0x90,0x90,0x90,0x90 };
-            Wow64RtlDispatchExceptionAddress = NULL;
-            Wow64RtlDispatchExceptionNewCodeAddress = NULL;
-            Wow64RtlDispatchExceptionJmpCodeBuffer[5] = { 0x90,0x90,0x90,0x90,0x90 };
-            Wow64RtlDispatchExceptioBackCode[5] = { 0x90,0x90,0x90,0x90,0x90 };
-            */
-            ZwClose(_ExplorerHandle);
+            _Initialized = TRUE;
         }
-
-
-        NTSTATUS result;
-        if (NT_SUCCESS(result = PsSetCreateProcessNotifyRoutine(CreateProcessNotifyRoutine, FALSE)))
-        {
-            if (NT_SUCCESS(result = PsSetCreateThreadNotifyRoutine(CreateThreadNotifyRoutine)))
-            {
-                if (NT_SUCCESS(result = PsSetLoadImageNotifyRoutine(LoadImageNotifyRoutine)))
-                {
-                    result = STATUS_SUCCESS;
-
-                    if (!NT_SUCCESS(result))
-                    {
-                        PsRemoveLoadImageNotifyRoutine(LoadImageNotifyRoutine);
-                    }
-                }
-                if (!NT_SUCCESS(result))
-                {
-                    PsRemoveCreateThreadNotifyRoutine(CreateThreadNotifyRoutine);
-                }
-            }
-            if (!NT_SUCCESS(result))
-            {
-                PsSetCreateProcessNotifyRoutine(CreateProcessNotifyRoutine, TRUE);
-            }
-        }
-
         return STATUS_SUCCESS;
     }
-    VOID UnInitialize()
+    NTSTATUS UserInitialize()
     {
-        PsRemoveLoadImageNotifyRoutine(LoadImageNotifyRoutine);
-        PsRemoveCreateThreadNotifyRoutine(CreateThreadNotifyRoutine);
-        PsSetCreateProcessNotifyRoutine(CreateProcessNotifyRoutine, TRUE);
+        if (_UserInitialized)
+        {
+
+
+            _UserInitialized = true;
+        }
+        return STATUS_SUCCESS;
+    }
+    NTSTATUS UserWow64Initialize()
+    {
+        if (_UserWow64Initialized)
+        {
+
+
+            _UserWow64Initialized = true;
+        }
+        return STATUS_SUCCESS;
     }
 }

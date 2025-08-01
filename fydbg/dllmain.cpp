@@ -103,24 +103,38 @@ BOOL WINAPI DllMain(
     case DLL_PROCESS_ATTACH:
     {
         bool success = false;
-        std::wstring fileName = std::wstring(L"\\\\.\\") + L"SERVER_NAME";
-        g_driverHandle = CreateFileW(fileName.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_SYSTEM, 0);
-        if (g_driverHandle == INVALID_HANDLE_VALUE)
+        do
         {
-			wchar_t DriveFileName[MAX_PATH] = { 0 };
-            if (GetModuleFileNameW(hinstDLL, DriveFileName, sizeof(DriveFileName) / sizeof(*DriveFileName)) > 0)
+            std::wstring fileName = std::wstring(L"\\\\.\\") + L"SERVER_NAME";
+            g_driverHandle = CreateFileW(fileName.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_SYSTEM, 0);
+            if (g_driverHandle == INVALID_HANDLE_VALUE)
             {
-                wchar_t* pos = DriveFileName + wcslen(DriveFileName);
-				while (*pos != L'\\')*pos-- = 0;
-				wcscat_s(DriveFileName, L"fydbg_drv.sys");
-                if (FYLIB::LoadDriver(SERVER_NAME, DriveFileName))
+                wchar_t DriveFileName[MAX_PATH] = { 0 };
+                if (GetModuleFileNameW(hinstDLL, DriveFileName, sizeof(DriveFileName) / sizeof(*DriveFileName)) > 0)
                 {
-                    g_driverHandle = CreateFileW(fileName.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_SYSTEM, 0);
+                    wchar_t* pos = DriveFileName + wcslen(DriveFileName);
+                    while (*pos != L'\\')*pos-- = 0;
+                    wcscat_s(DriveFileName, L"fydbg_drv.sys");
+                    if (FYLIB::LoadDriver(SERVER_NAME, DriveFileName))
+                    {
+                        g_driverHandle = CreateFileW(fileName.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_SYSTEM, 0);
+                        if (DeviceIoControl(g_driverHandle, IO_CODE_DBG_INIT, NULL, 0, NULL, 0, NULL, NULL))
+                        {
+                            success = true;
+                        }
+                    }
                 }
             }
-        }
-        if (g_driverHandle != INVALID_HANDLE_VALUE)
-        {
+            if (!success)
+            {
+                break;
+            }
+
+            funNtDeviceIoControlFile = (decltype(funNtDeviceIoControlFile))GetProcAddress(GetModuleHandleA("ntdll.dll"), "NtDeviceIoControlFile");
+            if(funNtDeviceIoControlFile == NULL)
+            {
+                break;
+			}
             //HOOK ntapis
             ForwardNtApi("NtReadVirtualMemory");
             ForwardNtApi("NtWriteVirtualMemory");
@@ -133,6 +147,16 @@ BOOL WINAPI DllMain(
             ForwardNtApi("NtFreeVirtualMemory");
 
             success = true;
+        } while (false);
+
+        if (!success)
+        {
+            if (g_driverHandle != INVALID_HANDLE_VALUE)
+            {
+                CloseHandle(g_driverHandle);
+                g_driverHandle = INVALID_HANDLE_VALUE;
+            }
+			return FALSE;
         }
     }
         break;
