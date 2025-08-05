@@ -6,8 +6,6 @@
 namespace dbg
 {
 	static bool _Initialized = false;
-    static bool _UserInitialized = false;
-    static bool _UserWow64Initialized = false;
 
 	static volatile PDEBUG_OBJECT _ProcessDebugPortList[0x10000 / 4] = { NULL };
     static volatile PCONTEXT _ThreadContextList[0x10000 / 4] = { NULL };
@@ -1376,26 +1374,6 @@ namespace dbg
             ETHREAD_RundownProtect_Offset = pParam->ETHREAD_RundownProtect_Offset;
 
             _Initialized = TRUE;
-        }
-        return STATUS_SUCCESS;
-    }
-    NTSTATUS UserInitialize()
-    {
-        if (_UserInitialized)
-        {
-
-
-            _UserInitialized = true;
-        }
-        return STATUS_SUCCESS;
-    }
-    NTSTATUS UserWow64Initialize()
-    {
-        if (_UserWow64Initialized)
-        {
-
-
-            _UserWow64Initialized = true;
         }
         return STATUS_SUCCESS;
     }

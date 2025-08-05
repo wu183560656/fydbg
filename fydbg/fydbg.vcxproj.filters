@@ -1,9 +1,45 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
-    <ClCompile Include="dllmain.cpp" />
+    <ClCompile Include="main.cpp" />
+    <ClCompile Include="kdmapper\intel_driver.cpp">
+      <Filter>kdmapper</Filter>
+    </ClCompile>
+    <ClCompile Include="kdmapper\kdmapper.cpp">
+      <Filter>kdmapper</Filter>
+    </ClCompile>
+    <ClCompile Include="kdmapper\KDSymbolsHandler.cpp">
+      <Filter>kdmapper</Filter>
+    </ClCompile>
+    <ClCompile Include="kdmapper\portable_executable.cpp">
+      <Filter>kdmapper</Filter>
+    </ClCompile>
+    <ClCompile Include="kdmapper\service.cpp">
+      <Filter>kdmapper</Filter>
+    </ClCompile>
+    <ClCompile Include="kdmapper\utils.cpp">
+      <Filter>kdmapper</Filter>
+    </ClCompile>
+    <ClCompile Include="kdmapperHelper.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <MASM Include="code.asm" />
+    <Filter Include="kdmapper">
+      <UniqueIdentifier>{7bbec843-5e02-4553-ba61-c128d8d5bd8c}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="kdmapper\kdmapper.vcxproj">
+      <Filter>kdmapper</Filter>
+    </None>
+    <None Include="kdmapper\kdmapper.vcxproj.filters">
+      <Filter>kdmapper</Filter>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <CopyFileToFolders Include="..\common\fylib\user\dbghelp.dll" />
+    <CopyFileToFolders Include="..\common\fylib\user\symsrv.dll" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="kdmapperHelper.h" />
   </ItemGroup>
 </Project>

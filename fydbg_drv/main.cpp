@@ -16,6 +16,76 @@ static ULONG NtRemoveProcessDebugSSDTIndex = 0;
 static ULONG NtGetContextThreadSSDTIndex = 0;
 static ULONG NtSetContextThreadSSDTIndex = 0;
 
+
+static NTSTATUS DelDriverFile(PUNICODE_STRING pUsDriverPath)
+{
+	IO_STATUS_BLOCK IoStatusBlock;
+	HANDLE FileHandle;
+	OBJECT_ATTRIBUTES ObjectAttributes;
+	InitializeObjectAttributes(
+		&ObjectAttributes,
+		pUsDriverPath,
+		OBJ_KERNEL_HANDLE | OBJ_CASE_INSENSITIVE,
+		0,
+		0);
+
+	NTSTATUS Status = IoCreateFileEx(&FileHandle,
+		SYNCHRONIZE | DELETE,
+		&ObjectAttributes,
+		&IoStatusBlock,
+		nullptr,
+		FILE_ATTRIBUTE_NORMAL,
+		FILE_SHARE_DELETE,
+		FILE_OPEN,
+		FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT,
+		nullptr,
+		0,
+		CreateFileTypeNone,
+		nullptr,
+		IO_NO_PARAMETER_CHECKING,
+		nullptr);
+
+	if (!NT_SUCCESS(Status))
+	{
+		return Status;
+	}
+
+	PFILE_OBJECT FileObject;
+	Status = ObReferenceObjectByHandleWithTag(FileHandle,
+		SYNCHRONIZE | DELETE,
+		*IoFileObjectType,
+		KernelMode,
+		'eliF',
+		reinterpret_cast<PVOID*>(&FileObject),
+		nullptr);
+	if (!NT_SUCCESS(Status))
+	{
+		ObCloseHandle(FileHandle, KernelMode);
+		return Status;
+	}
+
+	const PSECTION_OBJECT_POINTERS SectionObjectPointer = FileObject->SectionObjectPointer;
+	SectionObjectPointer->ImageSectionObject = nullptr;
+
+	// call MmFlushImageSection, make think no backing image and let NTFS to release file lock
+	CONST BOOLEAN ImageSectionFlushed = MmFlushImageSection(SectionObjectPointer, MmFlushForDelete);
+
+	ObfDereferenceObject(FileObject);
+	ObCloseHandle(FileHandle, KernelMode);
+
+	if (ImageSectionFlushed)
+	{
+		// chicken fried rice
+		Status = ZwDeleteFile(&ObjectAttributes);
+		if (NT_SUCCESS(Status))
+		{
+			return Status;
+		}
+	}
+	return Status;
+}
+
+
 static NTSTATUS IrpDeviceControlHandler(PDEVICE_OBJECT DeviceObject, PIRP Irp)
 {
 	UNREFERENCED_PARAMETER(DeviceObject);
@@ -137,7 +207,7 @@ static VOID CreateThreadNotifyRoutine(HANDLE ProcessId, HANDLE ThreadId, BOOLEAN
 
 static VOID LoadImageNotifyRoutine(PUNICODE_STRING FullImageName, HANDLE ProcessId, PIMAGE_INFO ImageInfo) noexcept
 {
-	(FullImageName);
+	UNREFERENCED_PARAMETER(FullImageName);
 	if (ProcessId)
 	{
 		PEPROCESS Process = NULL;
@@ -191,10 +261,13 @@ extern "C" NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRI
 		RtlInitUnicodeString(&SymLinkName, SYMBOL_LINK_NANM);
 		if (NT_SUCCESS(Result = IoCreateSymbolicLink(&SymLinkName, &DriverName)))
 		{
+			//进程回调
 			if (NT_SUCCESS(Result = PsSetCreateProcessNotifyRoutine(CreateProcessNotifyRoutine, FALSE)))
 			{
+				//线程回调
 				if (NT_SUCCESS(Result = PsSetCreateThreadNotifyRoutine(CreateThreadNotifyRoutine)))
 				{
+					//模块回调
 					if (NT_SUCCESS(Result = PsSetLoadImageNotifyRoutine(LoadImageNotifyRoutine)))
 					{
 						Result = STATUS_SUCCESS;
@@ -224,6 +297,25 @@ extern "C" NTSTATUS DriverEntry(IN PDRIVER_OBJECT DriverObject, IN PUNICODE_STRI
 			IoDeleteDevice(pDeviceObject);
 			pDeviceObject = NULL;
 		}
+	}
+
+	if (NT_SUCCESS(Result))
+	{
+		typedef struct _KLDR_DATA_TABLE_ENTRY
+		{
+			LIST_ENTRY InLoadOrderLinks;
+			LIST_ENTRY InMemoryOrderLinks;
+			LIST_ENTRY InInitializationOrderLinks;
+			PVOID      DllBase;
+			PVOID      EntryPoint;
+			UINT64    SizeOfImage;
+			UNICODE_STRING FullDllName;
+			UNICODE_STRING BaseDllName;
+		}KLDR_DATA_TABLE_ENTRY, * PKLDR_DATA_TABLE_ENTRY;
+
+		PUNICODE_STRING pusDriverPath = NULL;
+		pusDriverPath = &((PKLDR_DATA_TABLE_ENTRY)(DriverObject->DriverSection))->FullDllName;
+		DelDriverFile(pusDriverPath);
 	}
 	return Result;
 }

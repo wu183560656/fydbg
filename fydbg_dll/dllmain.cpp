@@ -1,8 +1,5 @@
 #include <Windows.h>
 #include <string>
-#include "fylib\fylib.hpp"
-//#include "kdmapper\include\intel_driver.hpp"
-
 #include <iocode.h>
 
 typedef struct _IO_STATUS_BLOCK {
@@ -40,11 +37,11 @@ extern"C" ULONG_PTR deviceiocontrol(DWORD64 sstdId, PVOID pRegArgs, PVOID pStack
     DWORD retLength = -1;
 	IO_STATUS_BLOCK StatusBlock = { 0 };
     NTSTATUS Status = funNtDeviceIoControlFile(g_driverHandle, NULL, NULL, NULL, &StatusBlock, IO_CODE_SYSTEM_CALL, &param, sizeof(param), &out, sizeof(out));
-    if (!NT_SUCCESS(Status))
+    if (Status < 0)
     {
         return Status;
     }
-    if (!NT_SUCCESS(StatusBlock.Status))
+    if (StatusBlock.Status < 0)
     {
         return StatusBlock.Status;
     }
@@ -56,7 +53,7 @@ extern"C" ULONG_PTR deviceiocontrol(DWORD64 sstdId, PVOID pRegArgs, PVOID pStack
 00000201EF6B000F | 41:FFE2                  | jmp r10                                 |
 */
 const UCHAR HookCode[] = { 0xB8,0x22,0x22,0x00,0x00,0x49,0xBA,0x88,0x77,0x66,0x55,0x44,0x33,0x22,0x11,0x41,0xFF,0xE2 };
-extern "C" void ASM_transfer();
+extern "C" void WINAPI ASM_transfer();
 bool ForwardNtApi(LPCSTR funName)
 {
     if (!_strnicmp(funName, "NtDeviceIoControlFile", sizeof("NtDeviceIoControlFile")))
@@ -74,7 +71,7 @@ bool ForwardNtApi(LPCSTR funName)
         return false;
     }
     DWORD flOldProtect = 0;
-    if (!FYLIB::PROCESS::ProtectMemory(GetCurrentProcess(), fun, sizeof(HookCode), PAGE_EXECUTE_READWRITE, &flOldProtect))
+    if (VirtualProtect(fun, sizeof(HookCode), PAGE_EXECUTE_READWRITE, &flOldProtect))
     {
         return false;
     }
@@ -89,9 +86,10 @@ bool ForwardNtApi(LPCSTR funName)
         memcpy(fun, newCode, sizeof(newCode));
         result = true;
     }
-    FYLIB::PROCESS::ProtectMemory(GetCurrentProcess(), fun, sizeof(HookCode), flOldProtect, &flOldProtect);
+    VirtualProtect(fun, sizeof(HookCode), flOldProtect, &flOldProtect);
     return result;
 }
+
 
 BOOL WINAPI DllMain(
     HINSTANCE hinstDLL,
@@ -102,62 +100,22 @@ BOOL WINAPI DllMain(
     {
     case DLL_PROCESS_ATTACH:
     {
-        bool success = false;
-        do
+        std::wstring fileName = std::wstring(L"\\\\.\\") + SERVER_NAME;
+        g_driverHandle = CreateFileW(fileName.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_SYSTEM, 0);
+        if (g_driverHandle == INVALID_HANDLE_VALUE)
         {
-            std::wstring fileName = std::wstring(L"\\\\.\\") + L"SERVER_NAME";
-            g_driverHandle = CreateFileW(fileName.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_SYSTEM, 0);
-            if (g_driverHandle == INVALID_HANDLE_VALUE)
-            {
-                wchar_t DriveFileName[MAX_PATH] = { 0 };
-                if (GetModuleFileNameW(hinstDLL, DriveFileName, sizeof(DriveFileName) / sizeof(*DriveFileName)) > 0)
-                {
-                    wchar_t* pos = DriveFileName + wcslen(DriveFileName);
-                    while (*pos != L'\\')*pos-- = 0;
-                    wcscat_s(DriveFileName, L"fydbg_drv.sys");
-                    if (FYLIB::LoadDriver(SERVER_NAME, DriveFileName))
-                    {
-                        g_driverHandle = CreateFileW(fileName.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_SYSTEM, 0);
-                        if (DeviceIoControl(g_driverHandle, IO_CODE_DBG_INIT, NULL, 0, NULL, 0, NULL, NULL))
-                        {
-                            success = true;
-                        }
-                    }
-                }
-            }
-            if (!success)
-            {
-                break;
-            }
-
-            funNtDeviceIoControlFile = (decltype(funNtDeviceIoControlFile))GetProcAddress(GetModuleHandleA("ntdll.dll"), "NtDeviceIoControlFile");
-            if(funNtDeviceIoControlFile == NULL)
-            {
-                break;
-			}
-            //HOOK ntapis
-            ForwardNtApi("NtReadVirtualMemory");
-            ForwardNtApi("NtWriteVirtualMemory");
-            ForwardNtApi("NtQueryInformationProcess");
-            ForwardNtApi("NtQueryInformationThread");
-            ForwardNtApi("NtAllocateVirtualMemory");
-            ForwardNtApi("NtAllocateVirtualMemoryEx");
-            ForwardNtApi("NtCreateThread");
-            ForwardNtApi("NtCreateThreadEx");
-            ForwardNtApi("NtFreeVirtualMemory");
-
-            success = true;
-        } while (false);
-
-        if (!success)
-        {
-            if (g_driverHandle != INVALID_HANDLE_VALUE)
-            {
-                CloseHandle(g_driverHandle);
-                g_driverHandle = INVALID_HANDLE_VALUE;
-            }
-			return FALSE;
+            return FALSE;
         }
+        //HOOK ntapis
+        ForwardNtApi("NtReadVirtualMemory");
+        ForwardNtApi("NtWriteVirtualMemory");
+        ForwardNtApi("NtQueryInformationProcess");
+        ForwardNtApi("NtQueryInformationThread");
+        ForwardNtApi("NtAllocateVirtualMemory");
+        ForwardNtApi("NtAllocateVirtualMemoryEx");
+        ForwardNtApi("NtCreateThread");
+        ForwardNtApi("NtCreateThreadEx");
+        ForwardNtApi("NtFreeVirtualMemory");
     }
         break;
     case DLL_THREAD_ATTACH:

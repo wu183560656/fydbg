@@ -17,7 +17,5 @@ namespace dbg
 	VOID DbgkUnMapViewOfSection(PEPROCESS Process, PVOID BaseAddress);
 
 	NTSTATUS Initialize(DBG_INIT_PARAM* pParam);
-	NTSTATUS UserInitialize();
-	NTSTATUS UserWow64Initialize();
 };
 
